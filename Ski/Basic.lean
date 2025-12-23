@@ -52,6 +52,10 @@ lemma Steps.trans {a b c : Term} : (a ⟶* b) → (b ⟶* c) → (a ⟶* c) := b
   | refl => exact r₂
   | step s rest ih => exact Steps.step s (ih r₂)
 
+/-- Trans instance for calc proofs -/
+instance : Trans Steps Steps Steps where
+  trans := Steps.trans
+
 /-- Congruence: reduce left side of application -/
 lemma Steps.appL {t t' u : Term} : (t ⟶* t') → (t ⬝ u ⟶* t' ⬝ u) := by
   intro r
