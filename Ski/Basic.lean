@@ -223,6 +223,14 @@ lemma Conv.trans {a b c : Term} : (a ≈ b) → (b ≈ c) → (a ≈ c) := by
 theorem Conv.equivalence : Equivalence Conv :=
   ⟨fun _ => Conv.refl, Conv.symm, Conv.trans⟩
 
+/-- SKK behaves like I: both reduce any argument to itself -/
+lemma skk_conv_i (x : Term) : (S ⬝ K ⬝ K ⬝ x) ≈ (I ⬝ x) := by
+  -- S K K x ⟶ (K x) (K x) ⟶ x
+  -- I x ⟶ x
+  refine ⟨x, ?_, ?_⟩
+  · exact Steps.step Step.s (Steps.step Step.k Steps.refl)
+  · exact Steps.step Step.i Steps.refl
+
 /-- Normal forms are unique -/
 lemma normal_unique {t n m : Term} : (t ⟶* n) → (t ⟶* m) → IsNormal n → IsNormal m → n = m := by
   intro hn hm nn nm
