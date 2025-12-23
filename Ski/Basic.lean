@@ -246,4 +246,38 @@ lemma normal_unique {t n m : Term} : (t ⟶* n) → (t ⟶* m) → IsNormal n �
     | step s _ => exact absurd s (nm _)
   | step s _ => exact absurd s (nn _)
 
+/-- K is in normal form -/
+lemma k_normal : IsNormal K := by
+  intro t' h
+  cases h
+
+/-- K ⬝ I is in normal form (partial application) -/
+lemma ki_normal : IsNormal (K ⬝ I) := by
+  intro t' h
+  cases h with
+  | appL h' => cases h'
+  | appR h' => cases h'
+
+/-- K ≠ K ⬝ I as terms -/
+lemma k_ne_ki : K ≠ K ⬝ I := by
+  intro h
+  cases h
+
+/-- K and K ⬝ I are not convertible -/
+theorem tru_ne_fls : ¬(K ≈ (K ⬝ I)) := by
+  intro ⟨c, hkc, hkic⟩
+  -- K ⟶* c and K ⬝ I ⟶* c, but K and K ⬝ I are different normal forms
+  have hk_eq_c : K = c := normal_unique Steps.refl hkc k_normal (by
+    -- c must be normal since K is normal and K ⟶* c
+    cases hkc with
+    | refl => exact k_normal
+    | step s _ => exact absurd s (k_normal _))
+  have hki_eq_c : K ⬝ I = c := normal_unique Steps.refl hkic ki_normal (by
+    cases hkic with
+    | refl => exact ki_normal
+    | step s _ => exact absurd s (ki_normal _))
+  -- K = c and K ⬝ I = c, so K = K ⬝ I
+  have : K = K ⬝ I := hk_eq_c.trans hki_eq_c.symm
+  exact k_ne_ki this
+
 end Term
