@@ -597,6 +597,124 @@ theorem selfApp_correct (t : Term) : selfApp ⬝ ⌜t⌝ ⟶* ⌜t ⬝ ⌜t⌝�
 /-- Helper: λy. g (selfApp y) in SKI = S (K g) selfApp -/
 private def kleeneHelper (g : Term) : Term := S ⬝ (K ⬝ g) ⬝ selfApp
 
+/-! ## Evaluator -/
+
+/-- A_eval q = q S K I -/
+private def A_eval : Term := S ⬝ (S ⬝ (S ⬝ I ⬝ (K ⬝ S)) ⬝ (K ⬝ K)) ⬝ (K ⬝ I)
+
+/-- A_eval q ⟶* q S K I -/
+private theorem A_eval_red (q : Term) : A_eval ⬝ q ⟶* q ⬝ S ⬝ K ⬝ I := by
+  unfold A_eval
+  -- S (S (S I (K S)) (K K)) (K I) q
+  refine Steps.step Step.s ?_
+  -- (S (S I (K S)) (K K) q) (K I q)
+  refine Steps.step (Step.appR Step.k) ?_
+  -- (S (S I (K S)) (K K) q) I
+  refine Steps.step (Step.appL Step.s) ?_
+  -- ((S I (K S) q) (K K q)) I
+  refine Steps.step (Step.appL (Step.appR Step.k)) ?_
+  -- ((S I (K S) q) K) I
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  -- (((I q) (K S q)) K) I
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.i))) ?_
+  -- ((q (K S q)) K) I
+  refine Steps.step (Step.appL (Step.appL (Step.appR Step.k))) ?_
+  -- ((q S) K) I = q S K I
+  exact Steps.refl
+
+/-- appHandler r x y = (r x) (r y)
+    = S (S (K S) (S (K (S (K S))) (S (K (S (K K))) I))) K -/
+private def appHandler : Term :=
+  S ⬝ (S ⬝ (K ⬝ S) ⬝ (S ⬝ (K ⬝ (S ⬝ (K ⬝ S))) ⬝ (S ⬝ (K ⬝ (S ⬝ (K ⬝ K))) ⬝ I))) ⬝ K
+
+/-- appHandler r x y ⟶* (r x) (r y) -/
+private theorem appHandler_red (r x y : Term) : appHandler ⬝ r ⬝ x ⬝ y ⟶* (r ⬝ x) ⬝ (r ⬝ y) := by
+  unfold appHandler
+  -- S (S (K S) (S (K (S (K S))) (S (K (S (K K))) I))) K r x y
+  -- First reduce the outermost S with r as argument
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  -- ((S (K S) (S (K (S (K S))) (S (K (S (K K))) I)) r) (K r)) x y
+  -- Reduce inner: S (K S) (S (...)) r
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.s))) ?_
+  -- (((K S r) ((S (K (S (K S))) (S (K (S (K K))) I)) r)) (K r)) x y
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appL Step.k)))) ?_
+  -- ((S ((S (K (S (K S))) (S (K (S (K K))) I)) r)) (K r)) x y
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR Step.s)))) ?_
+  -- ((S ((K (S (K S)) r) ((S (K (S (K K))) I) r))) (K r)) x y
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR (Step.appL Step.k))))) ?_
+  -- ((S ((S (K S)) ((S (K (S (K K))) I) r))) (K r)) x y
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR (Step.appR Step.s))))) ?_
+  -- ((S ((S (K S)) ((K (S (K K)) r) (I r)))) (K r)) x y
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR (Step.appR (Step.appL Step.k)))))) ?_
+  -- ((S ((S (K S)) ((S (K K)) (I r)))) (K r)) x y
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR (Step.appR (Step.appR Step.i)))))) ?_
+  -- ((S (S (K S) (S (K K) r))) (K r)) x y
+  -- Now apply x: S (S (K S) (S (K K) r)) (K r) x
+  refine Steps.step (Step.appL Step.s) ?_
+  -- ((S (K S) (S (K K) r) x) (K r x)) y
+  refine Steps.step (Step.appL (Step.appR Step.k)) ?_
+  -- ((S (K S) (S (K K) r) x) r) y
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  -- (((K S x) ((S (K K) r) x)) r) y
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.k))) ?_
+  -- ((S ((S (K K) r) x)) r) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR Step.s))) ?_
+  -- ((S ((K K x) (r x))) r) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appL Step.k)))) ?_
+  -- ((S (K (r x))) r) y
+  -- Now S (K (r x)) r y = (K (r x) y) (r y) = (r x) (r y)
+  refine Steps.step Step.s ?_
+  -- (K (r x) y) (r y)
+  refine Steps.step (Step.appL Step.k) ?_
+  -- (r x) (r y)
+  exact Steps.refl
+
+/-- evalBody r q = q S K I (appHandler r)
+    Using the same pattern as quoteQuoteBody -/
+private def evalBody : Term := S ⬝ (K ⬝ (S ⬝ A_eval)) ⬝ (S ⬝ (K ⬝ K) ⬝ appHandler)
+
+/-- evalBody r q ⟶* (q S K I) (appHandler r) -/
+private theorem evalBody_red (r q : Term) :
+    evalBody ⬝ r ⬝ q ⟶* (q ⬝ S ⬝ K ⬝ I) ⬝ (appHandler ⬝ r) := by
+  unfold evalBody
+  -- S (K (S A_eval)) (S (K K) appHandler) r q
+  refine Steps.step (Step.appL Step.s) ?_
+  -- (K (S A_eval) r) ((S (K K) appHandler) r) q
+  refine Steps.step (Step.appL (Step.appL Step.k)) ?_
+  -- (S A_eval) ((S (K K) appHandler) r) q
+  refine Steps.step (Step.appL (Step.appR Step.s)) ?_
+  -- (S A_eval) ((K K r) (appHandler r)) q
+  refine Steps.step (Step.appL (Step.appR (Step.appL Step.k))) ?_
+  -- (S A_eval) (K (appHandler r)) q
+  refine Steps.step Step.s ?_
+  -- (A_eval q) (K (appHandler r) q)
+  refine Steps.step (Step.appR Step.k) ?_
+  -- (A_eval q) (appHandler r)
+  exact Steps.appL (A_eval_red q)
+
+/-- The eval combinator: eval ⌜t⌝ ⟶* t -/
+def eval : Term := Θ ⬝ evalBody
+
+/-- Common initial reduction for eval -/
+private theorem eval_step (t : Term) :
+    eval ⬝ ⌜t⌝ ⟶* (⌜t⌝ ⬝ S ⬝ K ⬝ I) ⬝ (appHandler ⬝ eval) := by
+  unfold eval
+  refine Steps.trans (Steps.appL (theta_unfold evalBody)) ?_
+  exact evalBody_red (Θ ⬝ evalBody) ⌜t⌝
+
+/-- eval ⌜t⌝ ⟶* t -/
+theorem eval_correct : ∀ t, eval ⬝ ⌜t⌝ ⟶* t
+  | S => Steps.trans (eval_step S) (quote_S_red S K I (appHandler ⬝ eval))
+  | K => Steps.trans (eval_step K) (quote_K_red S K I (appHandler ⬝ eval))
+  | I => Steps.trans (eval_step I) (quote_I_red S K I (appHandler ⬝ eval))
+  | app t u => by
+    refine Steps.trans (eval_step (t ⬝ u)) ?_
+    refine Steps.trans (quote_app_red t u S K I (appHandler ⬝ eval)) ?_
+    refine Steps.trans (appHandler_red eval ⌜t⌝ ⌜u⌝) ?_
+    exact Steps.app (eval_correct t) (eval_correct u)
+
+/-! ## Kleene's Fixed Point Theorem -/
+
 /-- kleeneHelper g y ⟶* g (selfApp y) -/
 private theorem kleeneHelper_red (g y : Term) :
     kleeneHelper g ⬝ y ⟶* g ⬝ (selfApp ⬝ y) := by

@@ -81,6 +81,20 @@ def BehaviorallyDecides (d : Term) (P : Term → Prop) : Prop :=
 /-- A property is behaviorally decidable if some term decides it given the term directly -/
 def IsBehaviorallyDecidable (P : Term → Prop) : Prop := ∃ d, BehaviorallyDecides d P
 
+/-- Behavioral decidability implies decidability (via eval).
+    If d behaviorally decides P, then S (K d) eval decides P,
+    since S (K d) eval ⌜t⌝ ⟶* d (eval ⌜t⌝) ⟶* d t. -/
+theorem behavioral_decidable_implies_decidable (P : Term → Prop) :
+    IsBehaviorallyDecidable P → IsDecidable P := by
+  intro ⟨d, hdec⟩
+  refine ⟨S ⬝ (K ⬝ d) ⬝ eval, fun t => ?_⟩
+  have hred : (S ⬝ (K ⬝ d) ⬝ eval) ⬝ ⌜t⌝ ⟶* d ⬝ t := by
+    refine Steps.step Step.s ?_
+    refine Steps.step (Step.appL Step.k) ?_
+    exact Steps.appR (eval_correct t)
+  exact ⟨fun hPt => Steps.trans hred ((hdec t).1 hPt),
+         fun hnPt => Steps.trans hred ((hdec t).2 hnPt)⟩
+
 /-! ## Rice's Theorem (Behavioral Version) -/
 
 /-- Behavioral Rice's theorem: no non-trivial semantic property is behaviorally decidable -/
@@ -248,13 +262,20 @@ theorem rice (P : Term → Prop)
     -- Contradiction
     exact hPx hPx'
 
-/- NOTE: Decidability does NOT imply behavioral decidability.
+/-- Alternative proof: behavioral Rice follows from Rice via the implication above -/
+theorem behavioral_rice' (P : Term → Prop)
+    (hsem : IsSemantic P)
+    (hnt : IsNontrivial P) :
+    ¬IsBehaviorallyDecidable P :=
+  fun h => rice P hsem hnt (behavioral_decidable_implies_decidable P h)
+
+/- NOTE: The implication only goes one way:
+   - Behavioral decidability → Decidability (via eval, proven above)
+   - Decidability does NOT imply behavioral decidability
+
    To go from decidability to behavioral, we would need a "quoting combinator"
    q such that q t ⟶* ⌜t⌝ for any term t. But no such combinator exists -
-   you can't compute the syntax of a term from its behavior.
-
-   Decidability (having access to the encoding ⌜t⌝) is strictly stronger than
-   behavioral decidability (having access to the term t directly). -/
+   you can't compute the syntax of a term from its behavior. -/
 
 /-- The halting problem is undecidable -/
 theorem halting_undecidable : ¬IsDecidable Halts :=
