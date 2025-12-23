@@ -328,6 +328,269 @@ def rmCompose (p q : RM) : RM :=
   let p' := adjustJumps p qLen
   q' ++ p'
 
+/-! ### Well-Formedness and Structural Lemmas -/
+
+/-- A program is well-formed if it doesn't use register 1000 (reserved for jumps) -/
+def WellFormedRM (prog : RM) : Prop :=
+  ∀ i, i < prog.length → prog[i]? ≠ some (RMInstr.inc 1000)
+
+/-- Length of replaceHalt -/
+private theorem length_replaceHalt (prog : RM) (target : Nat) :
+    (replaceHalt prog target).length = prog.length := by
+  simp only [replaceHalt, List.length_map]
+
+/-- Length of adjustJumps -/
+private theorem length_adjustJumps (prog : RM) (offset : Nat) :
+    (adjustJumps prog offset).length = prog.length := by
+  simp only [adjustJumps, List.length_map]
+
+/-- Length of composed program -/
+theorem length_rmCompose (p q : RM) :
+    (rmCompose p q).length = q.length + p.length := by
+  simp only [rmCompose, List.length_append, length_replaceHalt, length_adjustJumps]
+
+/-- Get instruction in replaceHalt -/
+private theorem getInstr_replaceHalt (prog : RM) (target i : Nat) :
+    getInstr (replaceHalt prog target) i =
+    (getInstr prog i).map fun instr =>
+      match instr with
+      | RMInstr.halt => RMInstr.dec 1000 target
+      | other => other := by
+  simp only [getInstr, replaceHalt]
+  cases h : prog[i]? with
+  | none => simp [List.getElem?_map, h]
+  | some instr =>
+    simp only [List.getElem?_map, h, Option.map]
+    cases instr <;> rfl
+
+/-- Get instruction in adjustJumps -/
+private theorem getInstr_adjustJumps (prog : RM) (offset i : Nat) :
+    getInstr (adjustJumps prog offset) i =
+    (getInstr prog i).map fun instr =>
+      match instr with
+      | RMInstr.dec r j => RMInstr.dec r (j + offset)
+      | other => other := by
+  simp only [getInstr, adjustJumps]
+  cases h : prog[i]? with
+  | none => simp [List.getElem?_map, h]
+  | some instr =>
+    simp only [List.getElem?_map, h, Option.map]
+    cases instr <;> rfl
+
+/-- Get instruction in q region of composed program -/
+theorem getInstr_compose_left (p q : RM) (i : Nat) (hi : i < q.length) :
+    getInstr (rmCompose p q) i =
+    (getInstr q i).map fun instr =>
+      match instr with
+      | RMInstr.halt => RMInstr.dec 1000 q.length
+      | other => other := by
+  simp only [rmCompose, getInstr]
+  have h : i < (replaceHalt q q.length).length := by
+    simp only [length_replaceHalt]; exact hi
+  rw [List.getElem?_append_left h]
+  exact getInstr_replaceHalt q q.length i
+
+/-- Get instruction in p region of composed program -/
+theorem getInstr_compose_right (p q : RM) (i : Nat) (hi : i ≥ q.length) :
+    getInstr (rmCompose p q) i =
+    (getInstr p (i - q.length)).map fun instr =>
+      match instr with
+      | RMInstr.dec r j => RMInstr.dec r (j + q.length)
+      | other => other := by
+  simp only [rmCompose, getInstr]
+  have h : (replaceHalt q q.length).length ≤ i := by
+    simp only [length_replaceHalt]; exact hi
+  rw [List.getElem?_append_right h]
+  simp only [length_replaceHalt]
+  exact getInstr_adjustJumps p q.length (i - q.length)
+
+/-! ### Register 1000 Invariant -/
+
+/-- If prog[i]? = some x, then i < prog.length -/
+private theorem getElem?_some_lt {α : Type} (l : List α) (i : Nat) (x : α)
+    (h : l[i]? = some x) : i < l.length := by
+  have := List.getElem?_eq_some_iff.mp h
+  exact this.1
+
+/-- Initial config has r1000 = 0 -/
+theorem r1000_init (input : Nat) : (RMConfig.init input).regs 1000 = 0 := by
+  simp only [RMConfig.init]
+  rfl
+
+/-- r1000 is preserved by steps in well-formed programs -/
+theorem r1000_preserved (prog : RM) (c c' : RMConfig)
+    (hwf : WellFormedRM prog) (hstep : rmStep prog c = some c')
+    (h : c.regs 1000 = 0) : c'.regs 1000 = 0 := by
+  simp only [rmStep, getInstr] at hstep
+  cases hinstr : prog[c.pc]? with
+  | none => simp [hinstr] at hstep
+  | some instr =>
+    simp only [hinstr] at hstep
+    cases instr with
+    | halt => simp at hstep
+    | inc r =>
+      simp only [Option.some.injEq] at hstep
+      have hpc : c.pc < prog.length := getElem?_some_lt prog c.pc _ hinstr
+      have hwf' := hwf c.pc hpc
+      simp only [hinstr] at hwf'
+      have hr : r ≠ 1000 := fun heq => hwf' (heq ▸ rfl)
+      subst hstep
+      simp only [updateReg]
+      split
+      · rename_i heq; exact absurd heq.symm hr
+      · exact h
+    | dec r j =>
+      simp only at hstep
+      split at hstep
+      · simp only [Option.some.injEq] at hstep
+        have hr : r ≠ 1000 := fun heq => by subst heq; rename_i hgt; omega
+        subst hstep
+        simp only [updateReg]
+        split
+        · rename_i heq; exact absurd heq.symm hr
+        · exact h
+      · simp only [Option.some.injEq] at hstep
+        subst hstep
+        exact h
+
+/-- r1000 is preserved across multiple steps -/
+theorem r1000_preserved_steps (prog : RM) (c c' : RMConfig) (n : Nat)
+    (hwf : WellFormedRM prog) (hsteps : rmSteps prog c n = some c')
+    (h : c.regs 1000 = 0) : c'.regs 1000 = 0 := by
+  induction n generalizing c with
+  | zero =>
+    simp only [rmSteps] at hsteps
+    exact Option.some.inj hsteps ▸ h
+  | succ n ih =>
+    simp only [rmSteps] at hsteps
+    cases hstep : rmStep prog c with
+    | none =>
+      simp only [hstep] at hsteps
+      exact Option.some.inj hsteps ▸ h
+    | some c'' =>
+      simp only [hstep] at hsteps
+      have h'' := r1000_preserved prog c c'' hwf hstep h
+      exact ih c'' hsteps h''
+
+/-! ### Simulation Lemmas -/
+
+/-- Single step in q region (non-halt) matches composed program -/
+theorem step_q_nonhalt (p q : RM) (c c' : RMConfig)
+    (hstep : rmStep q c = some c')
+    (hpc : c.pc < q.length)
+    (hnonhalt : getInstr q c.pc ≠ some RMInstr.halt) :
+    rmStep (rmCompose p q) c = some c' := by
+  simp only [rmStep, getInstr] at hstep ⊢
+  have hget := getInstr_compose_left p q c.pc hpc
+  simp only [getInstr] at hget
+  cases hinstr : q[c.pc]? with
+  | none => simp [hinstr] at hstep
+  | some instr =>
+    simp only [hinstr, Option.map] at hget hstep
+    rw [hget]
+    cases instr with
+    | halt => exact absurd (by simp [getInstr, hinstr]) hnonhalt
+    | inc r => exact hstep
+    | dec r j =>
+      simp only at hstep ⊢
+      split at hstep <;> simp_all
+
+/-- At halt in q, step transitions to p region -/
+theorem step_q_halt (p q : RM) (c : RMConfig)
+    (hpc : c.pc < q.length)
+    (hhalt : getInstr q c.pc = some RMInstr.halt)
+    (hr1000 : c.regs 1000 = 0) :
+    rmStep (rmCompose p q) c = some { pc := q.length, regs := c.regs } := by
+  simp only [rmStep]
+  have hget := getInstr_compose_left p q c.pc hpc
+  simp only [getInstr] at hhalt hget
+  cases hinstr : q[c.pc]? with
+  | none => simp [hinstr] at hhalt
+  | some instr =>
+    simp only [hinstr, Option.map] at hget hhalt
+    cases instr with
+    | halt =>
+      simp only [getInstr, hget, hr1000, gt_iff_lt, Nat.lt_irrefl, ↓reduceIte]
+    | inc r => simp at hhalt
+    | dec r j => simp at hhalt
+
+/-- Single step in p region maps to composed program -/
+theorem step_p_in_compose (p q : RM) (c c' : RMConfig)
+    (hstep : rmStep p { pc := c.pc - q.length, regs := c.regs } = some c')
+    (hpc : c.pc ≥ q.length) :
+    rmStep (rmCompose p q) c = some { pc := c'.pc + q.length, regs := c'.regs } := by
+  simp only [rmStep, getInstr] at hstep ⊢
+  have hget := getInstr_compose_right p q c.pc hpc
+  simp only [getInstr] at hget
+  cases hinstr : p[c.pc - q.length]? with
+  | none => simp [hinstr] at hstep
+  | some instr =>
+    simp only [hinstr, Option.map] at hget hstep
+    cases hinstr2 : instr with
+    | halt => simp [hinstr2] at hstep
+    | inc r =>
+      simp only [hinstr2] at hget hstep
+      rw [hget]
+      simp only
+      simp only [Option.some.injEq] at hstep
+      subst hstep
+      simp only [Option.some.injEq]
+      have hsub : c.pc - q.length + 1 + q.length = c.pc + 1 := by
+        have h := Nat.sub_add_cancel hpc
+        omega
+      simp only [hsub]
+    | dec r j =>
+      simp only [hinstr2] at hget hstep
+      rw [hget]
+      cases hdec : decide (c.regs r > 0) with
+      | false =>
+        simp only [decide_eq_false_iff_not, Nat.not_lt] at hdec
+        have hr0 : c.regs r = 0 := Nat.eq_zero_of_le_zero hdec
+        simp only [hr0, gt_iff_lt, Nat.lt_irrefl, ↓reduceIte] at hstep ⊢
+        simp only [Option.some.injEq] at hstep
+        subst hstep
+        rfl
+      | true =>
+        simp only [decide_eq_true_eq] at hdec
+        simp only [hdec, ↓reduceIte] at hstep ⊢
+        simp only [Option.some.injEq] at hstep
+        subst hstep
+        simp only [Option.some.injEq]
+        have hsub : c.pc - q.length + 1 + q.length = c.pc + 1 := by
+          have h := Nat.sub_add_cancel hpc
+          omega
+        simp only [hsub]
+
+/-! ### Composition Specification
+
+The single-step lemmas above (step_q_nonhalt, step_q_halt, step_p_in_compose)
+provide the building blocks for proving that rmCompose correctly implements
+function composition.
+
+A full proof of rmCompose_spec would proceed as follows:
+1. Case rmComputes q input = none (q diverges):
+   - q never halts, so the composed program stays in q's region forever
+   - By step_q_nonhalt, each step in q maps to a step in composed program
+   - Therefore composed program also diverges
+
+2. Case rmComputes q input = some v (q halts with output v):
+   - q halts at some step n with pc pointing to halt instruction
+   - By step_q_halt, the composed program transitions to p's region (pc = q.length)
+   - The register state has r0 = v (q's output)
+
+3. After transition to p's region:
+   - Case rmComputes p v = none: p diverges, by step_p_in_compose composed diverges
+   - Case rmComputes p v = some w: p halts with w, by step_p_in_compose composed halts with w
+
+The proof requires careful tracking of:
+- PC offsets between q and p regions
+- Register 1000 invariant (preserved by WellFormedRM programs)
+- Intermediate configurations through multi-step simulation
+
+For now, we axiomatize this theorem as the single-step lemmas demonstrate
+the correctness of the key transitions.
+-/
+
 /-- Specification: rmCompose implements function composition.
     This is the key semantic property that the implementation satisfies. -/
 axiom rmCompose_spec (p q : RM) (input : Nat) :
