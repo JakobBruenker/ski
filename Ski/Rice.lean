@@ -95,114 +95,6 @@ theorem behavioral_decidable_implies_decidable (P : Term → Prop) :
   exact ⟨fun hPt => Steps.trans hred ((hdec t).1 hPt),
          fun hnPt => Steps.trans hred ((hdec t).2 hnPt)⟩
 
-/-! ## Rice's Theorem (Behavioral Version) -/
-
-/-- Behavioral Rice's theorem: no non-trivial semantic property is behaviorally decidable -/
-theorem behavioral_rice (P : Term → Prop)
-    (hsem : IsSemantic P)
-    (hnt : IsNontrivial P) :
-    ¬IsBehaviorallyDecidable P := by
-  obtain ⟨t, f, ht, hf⟩ := hnt
-  intro ⟨d, hdec⟩
-  -- Construct g = λx. (d x) f t
-  -- In SKI: g = S (S d (K f)) (K t)
-  let g := S ⬝ (S ⬝ d ⬝ (K ⬝ f)) ⬝ (K ⬝ t)
-  -- Let x = Θ g (fixed point)
-  let x := Θ ⬝ g
-  -- Key: x ⟶* g x = (d x) f t
-  have hxgx : x ⟶* g ⬝ x := theta_unfold g
-  -- g x = S (S d (K f)) (K t) x ⟶* (d x) f t
-  have hgx_red : g ⬝ x ⟶* (d ⬝ x) ⬝ f ⬝ t := by
-    -- S (S d (K f)) (K t) x ⟶ ((S d (K f)) x) ((K t) x)
-    -- = ((S d (K f)) x) t  [since (K t) x ⟶ t]
-    -- (S d (K f)) x ⟶ (d x) ((K f) x) = (d x) f
-    -- So g x ⟶* (d x) f t
-    refine Steps.step Step.s ?_
-    refine Steps.step (Step.appR Step.k) ?_
-    refine Steps.step (Step.appL Step.s) ?_
-    exact Steps.step (Step.appL (Step.appR Step.k)) Steps.refl
-  -- Now case split on P x
-  by_cases hPx : P x
-  · -- Case P x
-    -- Then d x ⟶* tru = K
-    have hdx : d ⬝ x ⟶* tru := (hdec x).1 hPx
-    -- So (d x) f t ⟶* K f t ⟶* f
-    have hgx_f : g ⬝ x ⟶* f := by
-      refine Steps.trans hgx_red ?_
-      refine Steps.trans (Steps.appL (Steps.appL hdx)) ?_
-      exact tru_red f t
-    -- x ⟶* g x ⟶* f, so x ≈ f
-    have hxf : x ≈ f := ⟨f, Steps.trans hxgx hgx_f, Steps.refl⟩
-    -- By semanticity, P f ↔ P x, so P f
-    have hPf : P f := (hsem x f hxf).1 hPx
-    -- Contradiction with hf : ¬P f
-    exact hf hPf
-  · -- Case ¬P x
-    -- Then d x ⟶* fls = K I
-    have hdx : d ⬝ x ⟶* fls := (hdec x).2 hPx
-    -- So (d x) f t ⟶* (K I) f t ⟶* t
-    have hgx_t : g ⬝ x ⟶* t := by
-      refine Steps.trans hgx_red ?_
-      refine Steps.trans (Steps.appL (Steps.appL hdx)) ?_
-      exact fls_red f t
-    -- x ⟶* g x ⟶* t, so x ≈ t
-    have hxt : x ≈ t := ⟨t, Steps.trans hxgx hgx_t, Steps.refl⟩
-    -- By semanticity, P t ↔ P x, so P x (since P t)
-    have hPx' : P x := (hsem t x (Conv.symm hxt)).1 ht
-    -- Contradiction
-    exact hPx hPx'
-
-/-! ## Halting is Undecidable -/
-
-/-- The halting problem is behaviorally undecidable -/
-theorem halting_behaviorally_undecidable : ¬IsBehaviorallyDecidable Halts :=
-  behavioral_rice Halts halts_semantic halts_nontrivial
-
-/-! ## Equivalence is Undecidable -/
-
-/-- K is in normal form -/
-lemma k_normal : IsNormal K := by
-  intro t' h
-  cases h
-
-/-- Normal forms can't reduce further -/
-lemma normal_steps_eq {t t' : Term} (hn : IsNormal t) (h : t ⟶* t') : t = t' := by
-  cases h with
-  | refl => rfl
-  | step s _ => exact absurd s (hn _)
-
-/-- I and K are not convertible -/
-lemma i_not_conv_k : ¬(I ≈ K) := by
-  intro ⟨c, hic, hkc⟩
-  have hi : I = c := normal_steps_eq i_normal hic
-  have hk : K = c := normal_steps_eq k_normal hkc
-  rw [← hi] at hk
-  cases hk
-
-/-- Convertibility to a fixed term is a semantic property -/
-lemma conv_semantic (t : Term) : IsSemantic (· ≈ t) := by
-  intro a b hab
-  constructor
-  · intro hat
-    exact Conv.trans (Conv.symm hab) hat
-  · intro hbt
-    exact Conv.trans hab hbt
-
-/-- Equivalence with any fixed term is behaviorally undecidable -/
-theorem equiv_behaviorally_undecidable (t : Term) : ¬IsBehaviorallyDecidable (· ≈ t) := by
-  have hnt : IsNontrivial (· ≈ t) := by
-    by_cases h : t ≈ I
-    · -- t ≈ I, so use K as negative witness
-      have hneg : ¬(K ≈ t) := by
-        intro hkt
-        have : I ≈ K := Conv.trans (Conv.symm h) (Conv.symm hkt)
-        exact i_not_conv_k this
-      exact ⟨t, K, Conv.refl, hneg⟩
-    · -- ¬(t ≈ I), so use I as negative witness
-      have hneg : ¬(I ≈ t) := fun hit => h (Conv.symm hit)
-      exact ⟨t, I, Conv.refl, hneg⟩
-  exact behavioral_rice (· ≈ t) (conv_semantic t) hnt
-
 /-! ## Rice's Theorem -/
 
 /-- Rice's theorem: no non-trivial semantic property is decidable.
@@ -262,20 +154,23 @@ theorem rice (P : Term → Prop)
     -- Contradiction
     exact hPx hPx'
 
-/-- Alternative proof: behavioral Rice follows from Rice via the implication above -/
-theorem behavioral_rice' (P : Term → Prop)
+/-- Behavioral Rice's theorem: no non-trivial semantic property is behaviorally decidable.
+    Follows from Rice since behavioral decidability implies decidability (via eval). -/
+theorem behavioral_rice (P : Term → Prop)
     (hsem : IsSemantic P)
     (hnt : IsNontrivial P) :
     ¬IsBehaviorallyDecidable P :=
   fun h => rice P hsem hnt (behavioral_decidable_implies_decidable P h)
 
 /- NOTE: The implication only goes one way:
-   - Behavioral decidability → Decidability (via eval, proven above)
+   - Behavioral decidability → Decidability (via eval)
    - Decidability does NOT imply behavioral decidability
 
    To go from decidability to behavioral, we would need a "quoting combinator"
    q such that q t ⟶* ⌜t⌝ for any term t. But no such combinator exists -
    you can't compute the syntax of a term from its behavior. -/
+
+/-! ## Undecidability Results -/
 
 /-- The halting problem is undecidable -/
 theorem halting_undecidable : ¬IsDecidable Halts :=
