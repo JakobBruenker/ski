@@ -98,103 +98,200 @@ theorem unpairSnd_lt (n : Nat) (hn : n > 0) : unpairSnd n < n := by
     exact Nat.one_le_div_iff (by omega) |>.mpr h
   omega
 
-/-- unpairFst n ≤ n for all n -/
-theorem unpairFst_le (n : Nat) : unpairFst n ≤ n := by
-  simp only [unpairFst]
-  have hw := findW_le n
-  have hs := unpairSnd_le_findW n
-  simp only [unpairSnd] at hs
-  -- unpairFst n = findW n - (n - triangular)
-  -- We need findW n - (n - t) ≤ n where t = triangular
-  -- Since t ≤ n, we have n - t ≥ 0
-  -- And n - t ≤ findW n, so findW n - (n - t) ≥ 0
-  -- Need to show findW n ≤ n + (n - t), i.e., findW n + t ≤ 2n
-  -- Actually simpler: unpairFst n ≤ findW n ≤ n for n ≥ 1
-  -- For n = 0: findW 0 = 0, so unpairFst 0 = 0 - 0 = 0 ≤ 0 ✓
-  by_cases hn : n = 0
-  · subst hn; simp [findW, findW.go]
-  · have hpos : n > 0 := Nat.pos_of_ne_zero hn
-    -- findW n ≤ n for n > 0 (since triangular(w) ≤ n and triangular grows quadratically)
-    -- More directly: unpairFst n = findW n - unpairSnd n
-    --               ≤ findW n
-    --               and we need findW n ≤ n
-    -- But actually findW n can be larger than n for small n...
-    -- Let me think again.
-    -- For n = 1: findW 1 = 1 (since 1*2/2 = 1 ≤ 1, but 2*3/2 = 3 > 1)
-    --           unpairSnd 1 = 1 - 1 = 0
-    --           unpairFst 1 = 1 - 0 = 1 ≤ 1 ✓
-    -- For n = 2: findW 2 = 1 (since 1*2/2 = 1 ≤ 2, but 2*3/2 = 3 > 2)
-    --           unpairSnd 2 = 2 - 1 = 1
-    --           unpairFst 2 = 1 - 1 = 0 ≤ 2 ✓
-    -- For n = 3: findW 3 = 2 (since 2*3/2 = 3 ≤ 3, but 3*4/2 = 6 > 3)
-    --           unpairSnd 3 = 3 - 3 = 0
-    --           unpairFst 3 = 2 - 0 = 2 ≤ 3 ✓
-    -- So unpairFst n ≤ findW n, and findW n ≤ n for n ≥ 1? Not quite.
-    -- findW n ≤ sqrt(2n) approximately
-    -- For n = 1, findW = 1, sqrt(2) ≈ 1.4 ✓
-    -- The key is: unpairFst n + unpairSnd n = findW n
-    -- And unpairSnd n ≥ 0
-    -- So unpairFst n ≤ findW n
-    -- And t = triangular(findW n) ≤ n
-    -- So findW n ≤ sqrt(2n + 1/4) - 1/2 < n for n ≥ 1
-    -- Actually this is getting complicated. Let me just use omega with the bounds.
-    have hsnd := unpairSnd_le_findW n
-    simp only [unpairSnd] at hsnd
-    -- We have: findW n - (n - t) where t = findW n * (findW n + 1) / 2
-    -- We want to show this is ≤ n
-    -- This is equivalent to: findW n ≤ n + (n - t) = 2n - t
-    -- Since t ≤ n, this is: findW n ≤ 2n - t ≤ 2n
-    -- Is findW n ≤ 2n? Yes, because t = w(w+1)/2 ≤ n, so w² < 2n+1, so w < sqrt(2n+1) < 2n for n ≥ 1
-    omega
+/-- Product of consecutive naturals is even -/
+private theorem two_dvd_mul_succ (n : Nat) : 2 ∣ n * (n + 1) := by
+  match hn : n % 2 with
+  | 0 =>
+    have hdvd : 2 ∣ n := Nat.dvd_of_mod_eq_zero hn
+    exact Nat.dvd_trans hdvd (Nat.dvd_mul_right n (n + 1))
+  | 1 =>
+    have hdvd : 2 ∣ (n + 1) := by
+      have h : (n + 1) % 2 = 0 := by omega
+      exact Nat.dvd_of_mod_eq_zero h
+    exact Nat.dvd_trans hdvd (Nat.dvd_mul_left (n + 1) n)
+  | k + 2 => omega
+
+/-- Helper: go also satisfies upper bound when it terminates by not satisfying condition -/
+private theorem findW_go_lt (n w fuel : Nat)
+    (hcont : ∀ w', w ≤ w' → (w' + 1) * (w' + 2) / 2 ≤ n → w' + 1 < w + fuel) :
+    n < (findW.go n w fuel + 1) * (findW.go n w fuel + 2) / 2 := by
+  induction fuel generalizing w with
+  | zero =>
+    simp only [findW.go]
+    match hcond : decide ((w + 1) * (w + 2) / 2 ≤ n) with
+    | true =>
+      have hle : (w + 1) * (w + 2) / 2 ≤ n := of_decide_eq_true hcond
+      have := hcont w (Nat.le_refl w) hle
+      omega
+    | false =>
+      have hgt : ¬((w + 1) * (w + 2) / 2 ≤ n) := of_decide_eq_false hcond
+      omega
+  | succ fuel' ih =>
+    simp only [findW.go]
+    split
+    · apply ih
+      intro w' hw' hcond'
+      have := hcont w' (Nat.le_trans (Nat.le_succ w) hw') hcond'
+      omega
+    · omega
 
 /-- Upper bound: next triangular number exceeds n -/
 private theorem findW_lt (n : Nat) : n < (findW n + 1) * (findW n + 2) / 2 := by
   unfold findW
-  suffices h : ∀ w fuel, w * (w + 1) / 2 ≤ n →
-      n < (findW.go n w fuel + 1) * (findW.go n w fuel + 2) / 2 by
-    exact h 0 (n + 1) (by simp)
-  intro w fuel hinv
-  induction fuel generalizing w with
-  | zero =>
-    simp only [findW.go]
-    -- fuel = 0 means we ran out, but started with fuel = n + 1
-    -- and each step decrements fuel, so we can't reach here unless w > n
-    -- Actually, go 0 just returns w, so we need n < (w+1)*(w+2)/2
-    -- This can fail if fuel runs out too early, but with fuel = n+1, it's enough
-    omega  -- This case shouldn't happen with proper fuel, but omega might handle
-  | succ fuel' ih =>
-    simp only [findW.go]
-    split
-    · -- (w + 1) * (w + 2) / 2 ≤ n, continue
-      apply ih
-      assumption
-    · -- ¬((w + 1) * (w + 2) / 2 ≤ n), i.e., n < (w+1)*(w+2)/2
-      omega
+  apply findW_go_lt
+  intro w' _ hcond
+  -- From hcond: (w'+1)*(w'+2)/2 ≤ n
+  -- Since (w'+1)*(w'+2) ≥ 2*(w'+1), we have (w'+1)*(w'+2)/2 ≥ w'+1
+  have hprod : (w' + 1) * (w' + 2) ≥ 2 * (w' + 1) := by
+    have : w' + 2 ≥ 2 := by omega
+    calc (w' + 1) * (w' + 2) ≥ (w' + 1) * 2 := Nat.mul_le_mul_left _ this
+      _ = 2 * (w' + 1) := Nat.mul_comm _ _
+  have hdvd := two_dvd_mul_succ (w' + 1)
+  have hdiv : (w' + 1) * (w' + 2) / 2 ≥ w' + 1 := by
+    have ⟨k, hk⟩ := hdvd
+    rw [hk, Nat.mul_div_cancel_left k (by omega : 0 < 2)]
+    have h : 2 * k ≥ 2 * (w' + 1) := by rw [← hk]; exact hprod
+    omega
+  omega
+
+/-- Triangular division subtraction -/
+private theorem tri_div_sub (w : Nat) :
+    (w + 1) * (w + 2) / 2 - w * (w + 1) / 2 = w + 1 := by
+  have heven1 := two_dvd_mul_succ w
+  have heven2 := two_dvd_mul_succ (w + 1)
+  have ⟨k1, hk1⟩ := heven1
+  have ⟨k2, hk2⟩ := heven2
+  rw [hk1, hk2, Nat.mul_div_cancel_left k1 (by omega : 0 < 2),
+      Nat.mul_div_cancel_left k2 (by omega : 0 < 2)]
+  have hdiff : (w + 1) * (w + 2) - w * (w + 1) = 2 * (w + 1) := by
+    have h1 : (w + 1) * (w + 2) = (w + 1) * w + (w + 1) * 2 := Nat.mul_add (w + 1) w 2
+    have h2 : (w + 1) * w = w * (w + 1) := Nat.mul_comm (w + 1) w
+    have h3 : (w + 1) * 2 = 2 * (w + 1) := Nat.mul_comm (w + 1) 2
+    omega
+  have h : 2 * k2 - 2 * k1 = 2 * (w + 1) := by
+    rw [← hk1, ← hk2]
+    exact hdiff
+  omega
 
 /-- unpairSnd is bounded by findW -/
 private theorem unpairSnd_le_findW (n : Nat) : unpairSnd n ≤ findW n := by
   simp only [unpairSnd]
   have hle := findW_le n
   have hlt := findW_lt n
-  -- unpairSnd n = n - triangular(findW n)
-  -- Need: n - t ≤ w where t = w*(w+1)/2, w = findW n
-  -- We know t ≤ n < (w+1)*(w+2)/2 = t + (w+1)
-  -- So n - t < w + 1, hence n - t ≤ w
-  have htri := findW_le n
-  have hnext := findW_lt n
-  -- (w+1)*(w+2)/2 = w*(w+1)/2 + (w+1)
-  have hexpand : (findW n + 1) * (findW n + 2) / 2 = findW n * (findW n + 1) / 2 + (findW n + 1) := by
-    have hprod : (findW n + 1) * (findW n + 2) = findW n * (findW n + 1) + 2 * (findW n + 1) := by ring
-    rw [hprod]
-    have heven : 2 ∣ findW n * (findW n + 1) := by
-      cases Nat.even_or_odd (findW n) with
-      | inl he => exact Nat.dvd_trans (Nat.even_iff_two_dvd.mp he) (Nat.dvd_mul_right _ _)
-      | inr ho =>
-        have : Even (findW n + 1) := Nat.Odd.add_one ho
-        exact Nat.dvd_trans (Nat.even_iff_two_dvd.mp this) (Nat.dvd_mul_left _ _)
-    rw [Nat.add_div_right _ (by omega : 0 < 2)]
-    congr 1
-    exact Nat.mul_div_cancel' heven
+  -- We need: n - (findW n * (findW n + 1) / 2) ≤ findW n
+  -- Use divisibility to simplify
+  have heven := two_dvd_mul_succ (findW n)
+  have ⟨k, hk⟩ := heven
+  -- findW n * (findW n + 1) / 2 = k
+  have ht_eq : findW n * (findW n + 1) / 2 = k := by
+    rw [hk, Nat.mul_div_cancel_left k (by omega : 0 < 2)]
+  -- (findW n + 1)*(findW n + 2)/2 = k + (findW n + 1) from tri_div_sub
+  have heven2 := two_dvd_mul_succ (findW n + 1)
+  have ⟨k2, hk2⟩ := heven2
+  have ht2_eq : (findW n + 1) * (findW n + 2) / 2 = k2 := by
+    rw [hk2, Nat.mul_div_cancel_left k2 (by omega : 0 < 2)]
+  have hdiff : k2 - k = findW n + 1 := by
+    have h1 : (findW n + 1) * (findW n + 2) - findW n * (findW n + 1) = 2 * (findW n + 1) := by
+      have step1 : (findW n + 1) * (findW n + 2) = (findW n + 1) * (findW n) + (findW n + 1) * 2 :=
+        Nat.mul_add (findW n + 1) (findW n) 2
+      have step2 : (findW n + 1) * (findW n) = (findW n) * (findW n + 1) :=
+        Nat.mul_comm (findW n + 1) (findW n)
+      have step3 : (findW n + 1) * 2 = 2 * (findW n + 1) := Nat.mul_comm (findW n + 1) 2
+      omega
+    have h2 : 2 * k2 - 2 * k = 2 * (findW n + 1) := by
+      rw [← hk, ← hk2]
+      exact h1
+    omega
+  -- hle says findW n * (findW n + 1) / 2 ≤ n, i.e., k ≤ n
+  have hle' : k ≤ n := by rw [← ht_eq]; exact hle
+  -- hlt says n < (findW n + 1) * (findW n + 2) / 2, i.e., n < k2
+  have hlt' : n < k2 := by rw [← ht2_eq]; exact hlt
+  -- k2 = k + (findW n + 1)
+  have hk2_eq : k2 = k + (findW n + 1) := by omega
+  -- Goal: n - k ≤ findW n (after substituting ht_eq)
+  rw [ht_eq]
+  -- n < k + (findW n + 1), n ≥ k, so n - k < findW n + 1
+  omega
+
+/-- unpairFst n ≤ n for all n -/
+theorem unpairFst_le (n : Nat) : unpairFst n ≤ n := by
+  simp only [unpairFst]
+  have hw := findW_le n
+  have hsnd := unpairSnd_le_findW n
+  simp only [unpairSnd] at hsnd
+  -- unpairFst n = findW n - (n - t) where t = findW n * (findW n + 1) / 2
+  -- We need to show findW n - (n - t) ≤ n
+  -- First, use divisibility
+  have heven := two_dvd_mul_succ (findW n)
+  have ⟨k, hk⟩ := heven
+  have ht_eq : findW n * (findW n + 1) / 2 = k := by
+    rw [hk, Nat.mul_div_cancel_left k (by omega : 0 < 2)]
+  -- hw says k ≤ n
+  have hk_le : k ≤ n := by rw [← ht_eq]; exact hw
+  -- hsnd says n - k ≤ findW n
+  have hsnd' : n - k ≤ findW n := by rw [← ht_eq]; exact hsnd
+  -- Goal: findW n - (n - k) ≤ n
+  rw [ht_eq]
+  -- findW n - (n - k) ≤ findW n ≤ n + k (we need to bound findW n)
+  -- Actually simpler: findW n - (n - k) ≤ k + (n - k) - (n - k) = k ≤ n
+  -- We have: findW n = (n - k) + (findW n - (n - k)) ≤ (n - k) + (findW n - (n - k))
+  -- The key observation: unpairFst n + unpairSnd n = findW n
+  -- So unpairFst n = findW n - unpairSnd n ≤ findW n
+  -- And we need findW n ≤ n + (n - t) = n + (n - k)
+  -- We know t = k ≤ n, so findW n - (n - k) + (n - k) = findW n
+  -- We want findW n - (n - k) ≤ n
+  -- Equivalently, findW n ≤ n + (n - k) = 2n - k
+  -- Since k ≤ n, we have 2n - k ≥ n
+  -- We need findW n ≤ n, i.e., w ≤ n where w*(w+1)/2 ≤ n
+  -- For w ≥ 2, w*(w+1)/2 ≥ 3, so if n < 3 we have w ≤ 1 ≤ n (for n ≥ 1)
+  -- For w ≥ n+1, w*(w+1)/2 ≥ (n+1)(n+2)/2 > n for n ≥ 0, contradiction
+  -- So w ≤ n always. Thus findW n ≤ n
+  have hfindW_le_n : findW n ≤ n := by
+    -- Key insight: k2 = k + (findW n + 1), n < k2, k ≤ n
+    -- So n < k + findW n + 1 ≤ n + findW n + 1
+    -- This gives n - k < findW n + 1, i.e., n - k ≤ findW n
+    -- Combined with hsnd': n - k ≤ findW n, this confirms the bound
+    -- Now: findW n ≤ n iff n - k ≤ n - 0 when k = findW n * (findW n + 1) / 2
+    -- Actually simpler: from hlt and hk_le, we can derive findW n ≤ n directly
+    -- hlt: n < (findW n + 1) * (findW n + 2) / 2
+    -- hk_le: k ≤ n, where 2k = findW n * (findW n + 1)
+    -- If findW n > n, then findW n ≥ n + 1
+    -- So 2k = findW n * (findW n + 1) ≥ (n+1) * (n+2) > 2n
+    -- Thus k > n, contradicting k ≤ n
+    have hlt := findW_lt n
+    have heven2 := two_dvd_mul_succ (findW n + 1)
+    have ⟨k2, hk2⟩ := heven2
+    have ht2_eq : (findW n + 1) * (findW n + 2) / 2 = k2 := by
+      rw [hk2, Nat.mul_div_cancel_left k2 (by omega : 0 < 2)]
+    have hlt' : n < k2 := by rw [← ht2_eq]; exact hlt
+    -- From 2k2 = (findW n + 1) * (findW n + 2) and 2k = findW n * (findW n + 1)
+    -- 2k2 - 2k = 2 * (findW n + 1), so k2 - k = findW n + 1
+    -- k2 = k + findW n + 1
+    -- Since n < k2 and k ≤ n: n < k + findW n + 1
+    -- So findW n + 1 > n - k ≥ 0 (since k ≤ n)
+    -- Actually just use: if findW n > n then k > n (contradiction)
+    -- Suppose findW n ≥ n + 1. Then:
+    -- 2k = findW n * (findW n + 1) ≥ (n + 1) * (n + 2)
+    -- (n + 1) * (n + 2) ≥ (n + 1) * 2 = 2 * (n + 1) > 2n
+    -- So 2k > 2n, meaning k > n, contradicting k ≤ n
+    if h : findW n ≤ n then exact h
+    else
+      have hge : findW n ≥ n + 1 := Nat.not_le.mp h
+      have hprod : findW n * (findW n + 1) ≥ (n + 1) * (n + 2) := by
+        apply Nat.mul_le_mul <;> omega
+      have hprod_gt : (n + 1) * (n + 2) > 2 * n := by
+        have h1 : n + 2 ≥ 2 := by omega
+        have h2 : (n + 1) * (n + 2) ≥ (n + 1) * 2 := Nat.mul_le_mul_left _ h1
+        have h3 : (n + 1) * 2 = 2 * (n + 1) := Nat.mul_comm _ _
+        have h4 : 2 * (n + 1) > 2 * n := by omega
+        omega
+      have h2k_gt : 2 * k > 2 * n := by
+        rw [← hk]
+        have h : findW n * (findW n + 1) ≥ (n + 1) * (n + 2) := hprod
+        omega
+      have : k > n := by omega
+      omega
+  -- Now use hfindW_le_n
   omega
 
 /-- Pairing is inverse of unpairing -/
@@ -232,21 +329,32 @@ private theorem pair_cond_eq (a b : Nat) :
     ¬((a + b + 1) * (a + b + 2) / 2 ≤ pair a b) := by
   simp only [pair]
   -- (a+b+1)*(a+b+2)/2 > (a+b)*(a+b+1)/2 + b
-  -- LHS = ((a+b)*(a+b+1) + 2*(a+b+1))/2 = (a+b)*(a+b+1)/2 + (a+b+1)
+  -- LHS = (a+b)*(a+b+1)/2 + (a+b+1)
   -- RHS = (a+b)*(a+b+1)/2 + b
   -- Need (a+b+1) > b, i.e., a+1 > 0, always true
-  have hprod : (a + b + 1) * (a + b + 2) = (a + b) * (a + b + 1) + 2 * (a + b + 1) := by ring
-  have hdiv : (a + b + 1) * (a + b + 2) / 2 = (a + b) * (a + b + 1) / 2 + (a + b + 1) := by
-    rw [hprod]
-    have heven : 2 ∣ (a + b) * (a + b + 1) := by
-      cases Nat.even_or_odd (a + b) with
-      | inl he => exact Nat.dvd_trans (Nat.even_iff_two_dvd.mp he) (Nat.dvd_mul_right _ _)
-      | inr ho =>
-        have : Even (a + b + 1) := Nat.Odd.add_one ho
-        exact Nat.dvd_trans (Nat.even_iff_two_dvd.mp this) (Nat.dvd_mul_left _ _)
-    rw [Nat.add_div_right _ (by omega : 0 < 2)]
-    congr 1
-    exact Nat.mul_div_cancel' heven
+  have heven := two_dvd_mul_succ (a + b)
+  have heven2 := two_dvd_mul_succ (a + b + 1)
+  have ⟨k, hk⟩ := heven
+  have ⟨k2, hk2⟩ := heven2
+  -- (a+b)*(a+b+1)/2 = k
+  have heq1 : (a + b) * (a + b + 1) / 2 = k := by
+    rw [hk, Nat.mul_div_cancel_left k (by omega : 0 < 2)]
+  -- (a+b+1)*(a+b+2)/2 = k2
+  have heq2 : (a + b + 1) * (a + b + 2) / 2 = k2 := by
+    rw [hk2, Nat.mul_div_cancel_left k2 (by omega : 0 < 2)]
+  -- k2 = k + (a+b+1), so k2 > k + b
+  have hdiff : (a + b + 1) * (a + b + 2) - (a + b) * (a + b + 1) = 2 * (a + b + 1) := by
+    have h1 : (a + b + 1) * (a + b + 2) = (a + b + 1) * (a + b) + (a + b + 1) * 2 :=
+      Nat.mul_add (a + b + 1) (a + b) 2
+    have h2 : (a + b + 1) * (a + b) = (a + b) * (a + b + 1) :=
+      Nat.mul_comm (a + b + 1) (a + b)
+    have h3 : (a + b + 1) * 2 = 2 * (a + b + 1) := Nat.mul_comm (a + b + 1) 2
+    omega
+  have hk2_eq : 2 * k2 - 2 * k = 2 * (a + b + 1) := by
+    rw [← hk, ← hk2]
+    exact hdiff
+  have hk2_val : k2 = k + (a + b + 1) := by omega
+  rw [heq1, heq2]
   omega
 
 /-- Helper: go reaches exactly target when conditions are set up right -/
@@ -264,27 +372,72 @@ private theorem findW_go_eq (n target w fuel : Nat)
     simp only [findW.go]
   | succ fuel' ih =>
     simp only [findW.go]
-    by_cases hcond : (w + 1) * (w + 2) / 2 ≤ n
-    · simp only [hcond, ↓reduceIte]
+    split
+    case isTrue hcond =>
       have hw' : w < target := by
-        by_contra hge
-        have : w = target := by omega
-        subst this
-        exact heq hcond
+        -- If w ≥ target, then w = target (since hw : w ≤ target)
+        -- Then hcond contradicts heq
+        if h : w < target then exact h
+        else
+          have hge : w ≥ target := Nat.not_lt.mp h
+          have heq' : w = target := by omega
+          subst heq'
+          exact absurd hcond heq
       apply ih
       · omega
       · intro w'' hlo hhi
         exact hlt w'' (by omega) hhi
       · omega
-    · simp only [hcond, ↓reduceIte]
-      by_contra hne
-      have : w < target := by omega
-      have := hlt w (Nat.le_refl w) this
-      exact hcond this
+    case isFalse hcond =>
+      -- Need to show w = target
+      -- If w < target, then hlt gives (w+1)*(w+2)/2 ≤ n, contradicting hcond
+      if h : w = target then exact h
+      else
+        have hne : w ≠ target := h
+        have hwlt : w < target := by omega
+        have hcond' := hlt w (Nat.le_refl w) hwlt
+        exact absurd hcond' hcond
+
+/-- pair a b ≥ b -/
+private theorem pair_ge_snd (a b : Nat) : pair a b ≥ b := by
+  simp only [pair]
+  omega
+
+/-- pair a b ≥ a + b -/
+private theorem pair_ge_sum (a b : Nat) : pair a b ≥ a + b := by
+  simp only [pair]
+  -- (a+b)*(a+b+1)/2 + b ≥ a + b
+  -- (a+b)*(a+b+1)/2 ≥ a
+  -- (a+b)*(a+b+1) ≥ 2a when a+b ≥ 1
+  -- For a = 0: 0 ≥ 0 ✓
+  -- For a ≥ 1, a + b ≥ 1: (a+b)*(a+b+1) ≥ 1*2 = 2 ≥ 2*1 = 2a only when a ≤ 1
+  -- Actually need: (a+b)*(a+b+1)/2 ≥ a
+  -- When a = 0: 0 ≥ 0 ✓
+  -- When a ≥ 1: (a+b)*(a+b+1) ≥ a*(a+1) ≥ a*2 = 2a, so /2 ≥ a
+  have hdvd := two_dvd_mul_succ (a + b)
+  have ⟨k, hk⟩ := hdvd
+  rw [hk, Nat.mul_div_cancel_left k (by omega : 0 < 2)]
+  -- Need: k + b ≥ a + b, i.e., k ≥ a
+  -- 2k = (a+b)*(a+b+1), and we need k ≥ a
+  -- (a+b)*(a+b+1) ≥ 2a when (a+b) ≥ 1 or a = 0
+  -- For a = 0: 2k = b*(b+1) ≥ 0 = 2*0 ✓
+  -- For a ≥ 1: (a+b)*(a+b+1) ≥ a*(a+1) ≥ 2a, so k ≥ a
+  have hprod : (a + b) * (a + b + 1) ≥ 2 * a := by
+    match a with
+    | 0 => simp
+    | a' + 1 =>
+      have h1 : a' + 1 + b ≥ a' + 1 := by omega
+      have h2 : a' + 1 + b + 1 ≥ 2 := by omega
+      calc (a' + 1 + b) * (a' + 1 + b + 1)
+        ≥ (a' + 1) * 2 := Nat.mul_le_mul h1 h2
+        _ = 2 * (a' + 1) := Nat.mul_comm _ _
+  have : 2 * k ≥ 2 * a := by rw [← hk]; exact hprod
+  omega
 
 /-- Key lemma: findW correctly computes a + b for pair a b -/
 private theorem findW_pair (a b : Nat) : findW (pair a b) = a + b := by
   unfold findW
+  have hge := pair_ge_sum a b
   apply findW_go_eq (pair a b) (a + b) 0 (pair a b + 1)
   · omega
   · intro w' _ hlt
