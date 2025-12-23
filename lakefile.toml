@@ -1,0 +1,10 @@
+name = "ski"
+version = "0.1.0"
+defaultTargets = ["ski"]
+
+[[lean_lib]]
+name = "Ski"
+
+[[lean_exe]]
+name = "ski"
+root = "Main"
