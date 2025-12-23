@@ -66,20 +66,28 @@ lemma halts_semantic : IsSemantic Halts := by
 
 /-! ## Decidability -/
 
-/-- A term d decides property P if d t reduces to tru when P t, and fls otherwise -/
+/-- A term d decides property P if d ⌜t⌝ reduces to tru when P t, and fls otherwise -/
 def Decides (d : Term) (P : Term → Prop) : Prop :=
+  ∀ t, (P t → d ⬝ ⌜t⌝ ⟶* tru) ∧ (¬P t → d ⬝ ⌜t⌝ ⟶* fls)
+
+/-- A property is decidable if some term decides it given the encoding -/
+def IsDecidable (P : Term → Prop) : Prop := ∃ d, Decides d P
+
+/-- A term d behaviorally decides P if d t reduces to tru when P t, and fls otherwise.
+    Unlike standard decidability, this gives the decider the term itself, not its encoding. -/
+def BehaviorallyDecides (d : Term) (P : Term → Prop) : Prop :=
   ∀ t, (P t → d ⬝ t ⟶* tru) ∧ (¬P t → d ⬝ t ⟶* fls)
 
-/-- A property is decidable if some term decides it -/
-def IsDecidable (P : Term → Prop) : Prop := ∃ d, Decides d P
+/-- A property is behaviorally decidable if some term decides it given the term directly -/
+def IsBehaviorallyDecidable (P : Term → Prop) : Prop := ∃ d, BehaviorallyDecides d P
 
 /-! ## Rice's Theorem (Behavioral Version) -/
 
-/-- Behavioral Rice's theorem: no non-trivial semantic property is decidable -/
+/-- Behavioral Rice's theorem: no non-trivial semantic property is behaviorally decidable -/
 theorem behavioral_rice (P : Term → Prop)
     (hsem : IsSemantic P)
     (hnt : IsNontrivial P) :
-    ¬IsDecidable P := by
+    ¬IsBehaviorallyDecidable P := by
   obtain ⟨t, f, ht, hf⟩ := hnt
   intro ⟨d, hdec⟩
   -- Construct g = λx. (d x) f t
@@ -132,8 +140,8 @@ theorem behavioral_rice (P : Term → Prop)
 
 /-! ## Halting is Undecidable -/
 
-/-- The halting problem is undecidable -/
-theorem halting_undecidable : ¬IsDecidable Halts :=
+/-- The halting problem is behaviorally undecidable -/
+theorem halting_behaviorally_undecidable : ¬IsBehaviorallyDecidable Halts :=
   behavioral_rice Halts halts_semantic halts_nontrivial
 
 /-! ## Equivalence is Undecidable -/
@@ -166,8 +174,8 @@ lemma conv_semantic (t : Term) : IsSemantic (· ≈ t) := by
   · intro hbt
     exact Conv.trans hab hbt
 
-/-- Equivalence with any fixed term is undecidable -/
-theorem equiv_undecidable (t : Term) : ¬IsDecidable (· ≈ t) := by
+/-- Equivalence with any fixed term is behaviorally undecidable -/
+theorem equiv_behaviorally_undecidable (t : Term) : ¬IsBehaviorallyDecidable (· ≈ t) := by
   have hnt : IsNontrivial (· ≈ t) := by
     by_cases h : t ≈ I
     · -- t ≈ I, so use K as negative witness
@@ -181,22 +189,14 @@ theorem equiv_undecidable (t : Term) : ¬IsDecidable (· ≈ t) := by
       exact ⟨t, I, Conv.refl, hneg⟩
   exact behavioral_rice (· ≈ t) (conv_semantic t) hnt
 
-/-! ## Syntactic Rice's Theorem -/
+/-! ## Rice's Theorem -/
 
-/-- A term d syntactically decides property P if d ⌜t⌝ reduces to tru/fls based on P t -/
-def SyntacticallyDecides (d : Term) (P : Term → Prop) : Prop :=
-  ∀ t, (P t → d ⬝ ⌜t⌝ ⟶* tru) ∧ (¬P t → d ⬝ ⌜t⌝ ⟶* fls)
-
-/-- A property is syntactically decidable if some term decides it given the encoding -/
-def IsSyntacticallyDecidable (P : Term → Prop) : Prop := ∃ d, SyntacticallyDecides d P
-
-/-- Syntactic Rice's theorem: no non-trivial semantic property is syntactically decidable.
-    This is stronger than behavioral Rice because the decider has access to the term's
-    syntax (via its encoding ⌜t⌝), not just its behavior. -/
-theorem syntactic_rice (P : Term → Prop)
+/-- Rice's theorem: no non-trivial semantic property is decidable.
+    The decider has access to the term's syntax via its encoding ⌜t⌝. -/
+theorem rice (P : Term → Prop)
     (hsem : IsSemantic P)
     (hnt : IsNontrivial P) :
-    ¬IsSyntacticallyDecidable P := by
+    ¬IsDecidable P := by
   obtain ⟨t, f, ht, hf⟩ := hnt
   intro ⟨d, hdec⟩
   -- Construct g = λq. (d q) f t
@@ -248,16 +248,16 @@ theorem syntactic_rice (P : Term → Prop)
     -- Contradiction
     exact hPx hPx'
 
-/- NOTE: Syntactic decidability does NOT imply behavioral decidability.
-   To go from syntactic to behavioral, we would need a "quoting combinator"
+/- NOTE: Decidability does NOT imply behavioral decidability.
+   To go from decidability to behavioral, we would need a "quoting combinator"
    q such that q t ⟶* ⌜t⌝ for any term t. But no such combinator exists -
    you can't compute the syntax of a term from its behavior.
 
-   Syntactic decidability (having access to the encoding ⌜t⌝) is strictly
-   stronger than behavioral decidability (having access to the term t directly). -/
+   Decidability (having access to the encoding ⌜t⌝) is strictly stronger than
+   behavioral decidability (having access to the term t directly). -/
 
-/-- Halting is syntactically undecidable -/
-theorem halting_syntactically_undecidable : ¬IsSyntacticallyDecidable Halts :=
-  syntactic_rice Halts halts_semantic halts_nontrivial
+/-- The halting problem is undecidable -/
+theorem halting_undecidable : ¬IsDecidable Halts :=
+  rice Halts halts_semantic halts_nontrivial
 
 end Term
