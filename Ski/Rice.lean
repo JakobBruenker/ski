@@ -31,6 +31,13 @@ lemma omega_diverges : ¬Halts Ω := by
 def IsSemantic (P : Term → Prop) : Prop :=
   ∀ t t', (t ≈ t') → (P t ↔ P t')
 
+/-- A property is non-trivial if some term has it and some term doesn't -/
+def IsNontrivial (P : Term → Prop) : Prop :=
+  ∃ t f, P t ∧ ¬P f
+
+/-- Halts is non-trivial: I halts, Ω doesn't -/
+lemma halts_nontrivial : IsNontrivial Halts := ⟨I, Ω, i_halts, omega_diverges⟩
+
 /-- Halts is a semantic property -/
 lemma halts_semantic : IsSemantic Halts := by
   intro t t' hconv
@@ -71,10 +78,9 @@ def IsDecidable (P : Term → Prop) : Prop := ∃ d, Decides d P
 /-- Behavioral Rice's theorem: no non-trivial semantic property is decidable -/
 theorem behavioral_rice (P : Term → Prop)
     (hsem : IsSemantic P)
-    {t f : Term}
-    (ht : P t)
-    (hf : ¬P f) :
+    (hnt : IsNontrivial P) :
     ¬IsDecidable P := by
+  obtain ⟨t, f, ht, hf⟩ := hnt
   intro ⟨d, hdec⟩
   -- Construct g = λx. (d x) f t
   -- In SKI: g = S (S d (K f)) (K t)
@@ -128,7 +134,7 @@ theorem behavioral_rice (P : Term → Prop)
 
 /-- The halting problem is undecidable -/
 theorem halting_undecidable : ¬IsDecidable Halts :=
-  behavioral_rice Halts halts_semantic i_halts omega_diverges
+  behavioral_rice Halts halts_semantic halts_nontrivial
 
 /-! ## Equivalence is Undecidable -/
 
@@ -162,16 +168,18 @@ lemma conv_semantic (t : Term) : IsSemantic (· ≈ t) := by
 
 /-- Equivalence with any fixed term is undecidable -/
 theorem equiv_undecidable (t : Term) : ¬IsDecidable (· ≈ t) := by
-  by_cases h : t ≈ I
-  · -- t ≈ I, so use K as negative witness
-    have hneg : ¬(K ≈ t) := by
-      intro hkt
-      have : I ≈ K := Conv.trans (Conv.symm h) (Conv.symm hkt)
-      exact i_not_conv_k this
-    exact behavioral_rice (· ≈ t) (conv_semantic t) Conv.refl hneg
-  · -- ¬(t ≈ I), so use I as negative witness
-    have hneg : ¬(I ≈ t) := fun hit => h (Conv.symm hit)
-    exact behavioral_rice (· ≈ t) (conv_semantic t) Conv.refl hneg
+  have hnt : IsNontrivial (· ≈ t) := by
+    by_cases h : t ≈ I
+    · -- t ≈ I, so use K as negative witness
+      have hneg : ¬(K ≈ t) := by
+        intro hkt
+        have : I ≈ K := Conv.trans (Conv.symm h) (Conv.symm hkt)
+        exact i_not_conv_k this
+      exact ⟨t, K, Conv.refl, hneg⟩
+    · -- ¬(t ≈ I), so use I as negative witness
+      have hneg : ¬(I ≈ t) := fun hit => h (Conv.symm hit)
+      exact ⟨t, I, Conv.refl, hneg⟩
+  exact behavioral_rice (· ≈ t) (conv_semantic t) hnt
 
 /-! ## Syntactic Rice's Theorem -/
 
@@ -187,10 +195,9 @@ def IsSyntacticallyDecidable (P : Term → Prop) : Prop := ∃ d, SyntacticallyD
     syntax (via its encoding ⌜t⌝), not just its behavior. -/
 theorem syntactic_rice (P : Term → Prop)
     (hsem : IsSemantic P)
-    {t f : Term}
-    (ht : P t)
-    (hf : ¬P f) :
+    (hnt : IsNontrivial P) :
     ¬IsSyntacticallyDecidable P := by
+  obtain ⟨t, f, ht, hf⟩ := hnt
   intro ⟨d, hdec⟩
   -- Construct g = λq. (d q) f t
   -- When d q = tru, returns f (which has ¬P)
@@ -251,6 +258,6 @@ theorem syntactic_rice (P : Term → Prop)
 
 /-- Halting is syntactically undecidable -/
 theorem halting_syntactically_undecidable : ¬IsSyntacticallyDecidable Halts :=
-  syntactic_rice Halts halts_semantic i_halts omega_diverges
+  syntactic_rice Halts halts_semantic halts_nontrivial
 
 end Term
