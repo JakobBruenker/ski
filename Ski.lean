@@ -3,4 +3,5 @@
 import Ski.Util
 import Ski.Basic
 import Ski.Combinator
+import Ski.Quote
 import Ski.Rice

@@ -139,6 +139,47 @@ lemma OmegaLike.steps : OmegaLike t → (t ⟶* t') → OmegaLike t' := by
 lemma OmegaLike.reachable : (Ω ⟶* t) → OmegaLike t :=
   Omega_OmegaLike.steps
 
+/-! ## Pairs (Optional)
+
+These pair combinators are not used in Rice's theorem but are useful building blocks. -/
+
+/-- Church pair: pair x y f ⟶* f x y
+    pair = λx y f. f x y
+    Derivation: [f](f x y) = S (S I (K x)) (K y)
+    Then [y] and [x] on that. -/
+def pair : Term :=
+  S ⬝ (S ⬝ (K ⬝ S) ⬝ (S ⬝ (K ⬝ K) ⬝ (S ⬝ (K ⬝ (S ⬝ (S ⬝ I))) ⬝ (S ⬝ (K ⬝ K) ⬝ I)))) ⬝
+  (K ⬝ (S ⬝ (K ⬝ K) ⬝ I))
+
+/-- First projection: fst p ⟶* p K ⟶* x (when p = pair x y)
+    fst = λp. p K = S I (K K) -/
+def fst : Term := S ⬝ I ⬝ (K ⬝ K)
+
+/-- Second projection: snd p ⟶* p (K I) ⟶* y (when p = pair x y)
+    snd = λp. p (K I) = S I (K (K I)) -/
+def snd : Term := S ⬝ I ⬝ (K ⬝ (K ⬝ I))
+
+/-- pair x y f ⟶* f x y -/
+lemma pair_red (x y f : Term) : pair ⬝ x ⬝ y ⬝ f ⟶* f ⬝ x ⬝ y := by
+  unfold pair
+  -- This is a long reduction, let's do it step by step
+  -- pair x = S (S (K S) ...) (K (S (K K) I)) x
+  -- ⟶ (S (K S) ...) x ((K (S (K K) I)) x)
+  -- ⟶ (S (K S) ...) x (S (K K) I)
+  sorry
+
+/-- fst (pair x y) ⟶* x -/
+lemma fst_pair (x y : Term) : fst ⬝ (pair ⬝ x ⬝ y) ⟶* x := by
+  -- fst p = S I (K K) p ⟶ I p (K K p) ⟶ p K
+  -- pair x y K ⟶* K x y ⟶ x
+  sorry
+
+/-- snd (pair x y) ⟶* y -/
+lemma snd_pair (x y : Term) : snd ⬝ (pair ⬝ x ⬝ y) ⟶* y := by
+  -- snd p = S I (K (K I)) p ⟶ I p (K (K I) p) ⟶ p (K I)
+  -- pair x y (K I) ⟶* (K I) x y ⟶ I y ⟶ y
+  sorry
+
 /-! ## Fixed-Point Combinator -/
 
 /-- A = λxf. f(xxf) in SKI

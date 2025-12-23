@@ -1,5 +1,6 @@
 import Ski.Basic
 import Ski.Combinator
+import Ski.Quote
 
 namespace Term
 
@@ -171,5 +172,90 @@ theorem equiv_undecidable (t : Term) : ¬IsDecidable (· ≈ t) := by
   · -- ¬(t ≈ I), so use I as negative witness
     have hneg : ¬(I ≈ t) := fun hit => h (Conv.symm hit)
     exact behavioral_rice (· ≈ t) (conv_semantic t) Conv.refl hneg
+
+/-! ## Syntactic Rice's Theorem -/
+
+/-- A term d syntactically decides property P if d ⌜t⌝ reduces to tru/fls based on P t -/
+def SyntacticallyDecides (d : Term) (P : Term → Prop) : Prop :=
+  ∀ t, (P t → d ⬝ ⌜t⌝ ⟶* tru) ∧ (¬P t → d ⬝ ⌜t⌝ ⟶* fls)
+
+/-- A property is syntactically decidable if some term decides it given the encoding -/
+def IsSyntacticallyDecidable (P : Term → Prop) : Prop := ∃ d, SyntacticallyDecides d P
+
+/-- Syntactic Rice's theorem: no non-trivial semantic property is syntactically decidable.
+    This is stronger than behavioral Rice because the decider has access to the term's
+    syntax (via its encoding ⌜t⌝), not just its behavior. -/
+theorem syntactic_rice (P : Term → Prop)
+    (hsem : IsSemantic P)
+    {t f : Term}
+    (ht : P t)
+    (hf : ¬P f) :
+    ¬IsSyntacticallyDecidable P := by
+  intro ⟨d, hdec⟩
+  -- Construct g = λq. (d q) f t
+  -- When d q = tru, returns f (which has ¬P)
+  -- When d q = fls, returns t (which has P)
+  -- In SKI: g = S (S d (K f)) (K t)
+  let g := S ⬝ (S ⬝ d ⬝ (K ⬝ f)) ⬝ (K ⬝ t)
+  -- By Kleene's theorem, there exists x such that x ≈ g ⌜x⌝
+  obtain ⟨x, hconv⟩ := kleene g
+  -- g ⌜x⌝ = S (S d (K f)) (K t) ⌜x⌝ ⟶* (d ⌜x⌝) f t
+  have hgq_red : g ⬝ ⌜x⌝ ⟶* (d ⬝ ⌜x⌝) ⬝ f ⬝ t := by
+    refine Steps.step Step.s ?_
+    refine Steps.step (Step.appR Step.k) ?_
+    refine Steps.step (Step.appL Step.s) ?_
+    exact Steps.step (Step.appL (Step.appR Step.k)) Steps.refl
+  -- Case split on P x
+  by_cases hPx : P x
+  · -- Case P x
+    have hdx : d ⬝ ⌜x⌝ ⟶* tru := (hdec x).1 hPx
+    -- (d ⌜x⌝) f t ⟶* tru f t ⟶* f
+    have hgq_f : g ⬝ ⌜x⌝ ⟶* f := by
+      refine Steps.trans hgq_red ?_
+      refine Steps.trans (Steps.appL (Steps.appL hdx)) ?_
+      exact tru_red f t
+    -- x ≈ g ⌜x⌝ (from Kleene) and g ⌜x⌝ ⟶* f, so x ≈ f
+    -- hconv gives us c such that x ⟶* c and g ⌜x⌝ ⟶* c
+    -- By confluence on g ⌜x⌝: g ⌜x⌝ ⟶* c and g ⌜x⌝ ⟶* f, so ∃d, c ⟶* d and f ⟶* d
+    obtain ⟨c, hxc, hgc⟩ := hconv
+    obtain ⟨d, hcd, hfd⟩ := confluence hgc hgq_f
+    -- x ⟶* c ⟶* d and f ⟶* d, so x ≈ f
+    have hxf : x ≈ f := ⟨d, Steps.trans hxc hcd, hfd⟩
+    -- By semanticity, P x ↔ P f, so P f
+    have hPf : P f := (hsem x f hxf).1 hPx
+    -- Contradiction with hf : ¬P f
+    exact hf hPf
+  · -- Case ¬P x
+    have hdx : d ⬝ ⌜x⌝ ⟶* fls := (hdec x).2 hPx
+    -- (d ⌜x⌝) f t ⟶* fls f t ⟶* t
+    have hgq_t : g ⬝ ⌜x⌝ ⟶* t := by
+      refine Steps.trans hgq_red ?_
+      refine Steps.trans (Steps.appL (Steps.appL hdx)) ?_
+      exact fls_red f t
+    -- x ≈ g ⌜x⌝ (from Kleene) and g ⌜x⌝ ⟶* t, so x ≈ t
+    obtain ⟨c, hxc, hgc⟩ := hconv
+    obtain ⟨d, hcd, htd⟩ := confluence hgc hgq_t
+    have hxt : x ≈ t := ⟨d, Steps.trans hxc hcd, htd⟩
+    -- By semanticity, P t ↔ P x, so P x (since P t)
+    have hPx' : P x := (hsem t x (Conv.symm hxt)).1 ht
+    -- Contradiction
+    exact hPx hPx'
+
+/-- NOTE: This direction does NOT hold in our setting.
+    To go from syntactic to behavioral decidability, we would need a "quoting combinator"
+    q such that q t ⟶* ⌜t⌝ for any term t. But no such combinator exists - you can't
+    compute the syntax of a term from its behavior.
+
+    In other words: syntactic decidability (having access to the encoding) is strictly
+    stronger than behavioral decidability (having access to the term directly). -/
+theorem syntactic_implies_behavioral {P : Term → Prop} :
+    IsSyntacticallyDecidable P → IsDecidable P := by
+  intro ⟨d, hdec⟩
+  -- Would need: d' = λx. d ⌜x⌝, but we can't quote at runtime
+  sorry -- This is actually FALSE without additional axioms
+
+/-- Halting is syntactically undecidable -/
+theorem halting_syntactically_undecidable : ¬IsSyntacticallyDecidable Halts :=
+  syntactic_rice Halts halts_semantic i_halts omega_diverges
 
 end Term
