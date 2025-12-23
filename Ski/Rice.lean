@@ -129,4 +129,47 @@ theorem behavioral_rice (P : Term → Prop)
 theorem halting_undecidable : ¬IsDecidable Halts :=
   behavioral_rice Halts halts_semantic i_halts omega_diverges
 
+/-! ## Equivalence is Undecidable -/
+
+/-- K is in normal form -/
+lemma k_normal : IsNormal K := by
+  intro t' h
+  cases h
+
+/-- Normal forms can't reduce further -/
+lemma normal_steps_eq {t t' : Term} (hn : IsNormal t) (h : t ⟶* t') : t = t' := by
+  cases h with
+  | refl => rfl
+  | step s _ => exact absurd s (hn _)
+
+/-- I and K are not convertible -/
+lemma i_not_conv_k : ¬(I ≈ K) := by
+  intro ⟨c, hic, hkc⟩
+  have hi : I = c := normal_steps_eq i_normal hic
+  have hk : K = c := normal_steps_eq k_normal hkc
+  rw [← hi] at hk
+  cases hk
+
+/-- Convertibility to a fixed term is a semantic property -/
+lemma conv_semantic (t : Term) : IsSemantic (· ≈ t) := by
+  intro a b hab
+  constructor
+  · intro hat
+    exact Conv.trans (Conv.symm hab) hat
+  · intro hbt
+    exact Conv.trans hab hbt
+
+/-- Equivalence with any fixed term is undecidable -/
+theorem equiv_undecidable (t : Term) : ¬IsDecidable (· ≈ t) := by
+  by_cases h : t ≈ I
+  · -- t ≈ I, so use K as negative witness
+    have hneg : ¬(K ≈ t) := by
+      intro hkt
+      have : I ≈ K := Conv.trans (Conv.symm h) (Conv.symm hkt)
+      exact i_not_conv_k this
+    exact behavioral_rice (· ≈ t) (conv_semantic t) Conv.refl hneg
+  · -- ¬(t ≈ I), so use I as negative witness
+    have hneg : ¬(I ≈ t) := fun hit => h (Conv.symm hit)
+    exact behavioral_rice (· ≈ t) (conv_semantic t) Conv.refl hneg
+
 end Term
