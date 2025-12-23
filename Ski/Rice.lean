@@ -31,6 +31,11 @@ lemma omega_diverges : ¬Halts Ω := by
 def IsSemantic (P : Term → Prop) : Prop :=
   ∀ t t', (t ≈ t') → (P t ↔ P t')
 
+/-- A semantic property can be proved by showing one direction (the other follows by symmetry) -/
+lemma IsSemantic.of_forward {P : Term → Prop}
+    (h : ∀ t t', (t ≈ t') → P t → P t') : IsSemantic P :=
+  fun t t' hconv => ⟨h t t' hconv, h t' t hconv.symm⟩
+
 /-- A property is non-trivial if some term has it and some term doesn't -/
 def IsNontrivial (P : Term → Prop) : Prop :=
   ∃ t f, P t ∧ ¬P f
@@ -39,30 +44,12 @@ def IsNontrivial (P : Term → Prop) : Prop :=
 lemma halts_nontrivial : IsNontrivial Halts := ⟨I, Ω, i_halts, omega_diverges⟩
 
 /-- Halts is a semantic property -/
-lemma halts_semantic : IsSemantic Halts := by
-  intro t t' hconv
-  constructor
-  · -- Halts t → Halts t'
-    intro ⟨n, hn, htn⟩
-    obtain ⟨c, htc, ht'c⟩ := hconv
-    -- By confluence on t: t ⟶* n and t ⟶* c, so ∃d, n ⟶* d and c ⟶* d
-    obtain ⟨d, hnd, hcd⟩ := confluence htn htc
-    -- n is normal, so n ⟶* d means d = n
-    cases hnd with
-    | refl =>
-      -- d = n, so c ⟶* n
-      -- t' ⟶* c ⟶* n
-      exact ⟨n, hn, Steps.trans ht'c hcd⟩
-    | step s _ =>
-      -- n ⟶ something, contradicts n being normal
-      exact absurd s (hn _)
-  · -- Halts t' → Halts t (symmetric)
-    intro ⟨n, hn, ht'n⟩
-    obtain ⟨c, htc, ht'c⟩ := hconv
-    obtain ⟨d, hnd, hcd⟩ := confluence ht'n ht'c
-    cases hnd with
-    | refl => exact ⟨n, hn, Steps.trans htc hcd⟩
-    | step s _ => exact absurd s (hn _)
+lemma halts_semantic : IsSemantic Halts := .of_forward fun t t' hconv ⟨n, hn, htn⟩ => by
+  obtain ⟨c, htc, ht'c⟩ := hconv
+  obtain ⟨d, hnd, hcd⟩ := confluence htn htc
+  cases hnd with
+  | refl => exact ⟨n, hn, Steps.trans ht'c hcd⟩
+  | step s _ => exact absurd s (hn _)
 
 /-! ## Decidability -/
 
