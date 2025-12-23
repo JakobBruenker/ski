@@ -139,25 +139,6 @@ theorem quote_app_red (t u s k i a : Term) : ⌜t ⬝ u⌝ ⬝ s ⬝ k ⬝ i ⬝
   -- a ⌜t⌝ ⌜u⌝
   exact Steps.refl
 
-/-! ## Evaluator (Optional)
-
-The evaluator `eval ⌜t⌝ ⟶* t` is interesting but NOT needed for syntactic Rice's theorem.
-Our proof uses Kleene's fixed-point theorem directly, which relies on self-application
-rather than evaluation. We sketch the construction but leave it incomplete.
-
-The idea: eval = Θ (λe t. t S K I (λx y. (e x) (e y)))
-The inner λx y. (e x) (e y) = S (S (K S) (S (K K) e)) (K e) -/
-
-private def evalBody : Term :=
-  sorry -- Complex but constructible
-
-/-- The evaluator: eval ⌜t⌝ ⟶* t (NOT needed for Rice's theorem) -/
-def eval : Term := Θ ⬝ evalBody
-
-/-- Correctness of eval (NOT needed for Rice's theorem) -/
-theorem eval_correct (t : Term) : eval ⬝ ⌜t⌝ ⟶* t := by
-  sorry
-
 /-! ## App Builder (needed for Kleene's theorem) -/
 
 /-- Composition combinator: B f g x ⟶* f (g x) -/
@@ -294,25 +275,313 @@ theorem mkApp_correct (t u : Term) : mkApp ⬝ ⌜t⌝ ⬝ ⌜u⌝ ⟶* ⌜t ⬝
 
 /-! ## Self-Application Combinator -/
 
-/-- quoteQuote takes a quoted term and returns its double-quotation:
-    quoteQuote ⌜t⌝ ⟶* ⌜⌜t⌝⌝
+/-! ## quoteQuote combinator
 
-    This is constructible via recursion over the Scott encoding using Θ.
-    The combinator processes the 4-way Scott encoding:
-    - For ⌜S⌝: returns ⌜⌜S⌝⌝ (a constant, the encoding of the encoding of S)
-    - For ⌜K⌝: returns ⌜⌜K⌝⌝
-    - For ⌜I⌝: returns ⌜⌜I⌝⌝
-    - For ⌜t ⬝ u⌝: recursively gets ⌜⌜t⌝⌝ and ⌜⌜u⌝⌝, then builds the encoding of ⌜t ⬝ u⌝
+quoteQuote takes a quoted term and returns its double-quotation:
+quoteQuote ⌜t⌝ ⟶* ⌜⌜t⌝⌝
 
-    The explicit construction involves building nested app encodings and is intricate.
-    We axiomatize its existence, which is a standard result in computability theory. -/
-axiom quoteQuote : Term
+The construction uses Θ for recursion over the Scott encoding:
+- For ⌜S⌝: returns ⌜⌜S⌝⌝ (constant)
+- For ⌜K⌝: returns ⌜⌜K⌝⌝ (constant)
+- For ⌜I⌝: returns ⌜⌜I⌝⌝ (constant)
+- For ⌜t ⬝ u⌝: recursively gets ⌜⌜t⌝⌝ and ⌜⌜u⌝⌝, then builds ⌜⌜t ⬝ u⌝⌝
+-/
 
-axiom quoteQuote_correct : ∀ t, quoteQuote ⬝ ⌜t⌝ ⟶* ⌜⌜t⌝⌝
+-- Constants: quoted and double-quoted base terms
+private def qS : Term := ⌜S⌝
+private def qK : Term := ⌜K⌝
+private def qI : Term := ⌜I⌝
+private def qSI : Term := ⌜S ⬝ I⌝
+private def qqS : Term := ⌜⌜S⌝⌝
+private def qqK : Term := ⌜⌜K⌝⌝
+private def qqI : Term := ⌜⌜I⌝⌝
+
+-- Helpers: partial applications of mkApp to build specific patterns
+private def mk_K : Term := mkApp ⬝ qK   -- mk_K x = ⌜K ⬝ x⌝
+private def mk_S : Term := mkApp ⬝ qS   -- mk_S x = ⌜S ⬝ x⌝
+private def mk_SI : Term := mkApp ⬝ qSI -- mk_SI x = ⌜(S ⬝ I) ⬝ x⌝
+
+/-- Φ combinator: Φ h f g x y = h (f x) (g y)
+    Φ h f g = S (S (K S) (S (K K) (S (K h) f))) (K g) -/
+private def PhiComb (h f g : Term) : Term :=
+  S ⬝ (S ⬝ (K ⬝ S) ⬝ (S ⬝ (K ⬝ K) ⬝ (S ⬝ (K ⬝ h) ⬝ f))) ⬝ (K ⬝ g)
+
+/-- Φ h f g x y ⟶* h (f x) (g y) -/
+private theorem PhiComb_red (h f g x y : Term) : PhiComb h f g ⬝ x ⬝ y ⟶* h ⬝ (f ⬝ x) ⬝ (g ⬝ y) := by
+  unfold PhiComb
+  -- S (S (K S) (S (K K) (S (K h) f))) (K g) x y
+  -- First apply to x:
+  refine Steps.step (Step.appL Step.s) ?_
+  -- ((S (K S) (S (K K) (S (K h) f)) x) ((K g) x)) y
+  refine Steps.step (Step.appL (Step.appR Step.k)) ?_
+  -- ((S (K S) (S (K K) (S (K h) f)) x) g) y
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  -- (((K S x) ((S (K K) (S (K h) f)) x)) g) y
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.k))) ?_
+  -- ((S ((S (K K) (S (K h) f)) x)) g) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR Step.s))) ?_
+  -- ((S ((K K x) ((S (K h) f) x))) g) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appL Step.k)))) ?_
+  -- ((S (K ((S (K h) f) x))) g) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appR Step.s)))) ?_
+  -- ((S (K ((K h x) (f x)))) g) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appR (Step.appL Step.k))))) ?_
+  -- ((S (K (h (f x)))) g) y
+  -- Now apply S (K (h (f x))) g y ⟶ (K (h (f x)) y) (g y)
+  refine Steps.step Step.s ?_
+  -- ((K (h (f x)) y) (g y))
+  refine Steps.step (Step.appL Step.k) ?_
+  -- (h (f x)) (g y)
+  exact Steps.refl
+
+/-- buildAppQuote builds ⌜⌜t ⬝ u⌝⌝ from ⌜⌜t⌝⌝ and ⌜⌜u⌝⌝.
+
+Since ⌜t ⬝ u⌝ = K ⬝ (K ⬝ (K ⬝ (S ⬝ (S ⬝ I ⬝ (K ⬝ ⌜t⌝)) ⬝ (K ⬝ ⌜u⌝)))),
+we need to build the encoding of this structure. The key structure is:
+  (S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝)
+
+So ⌜⌜t ⬝ u⌝⌝ = mkApp qK (mkApp qK (mkApp qK (mkApp (mkApp qS (mkApp qSI (mkApp qK ⌜⌜t⌝⌝))) (mkApp qK ⌜⌜u⌝⌝))))
+
+buildAppQuote = B (B wrap) inner where:
+- inner x y = mkApp (mkApp qS (mkApp qSI (mkApp qK x))) (mkApp qK y)
+- wrap z = mkApp qK (mkApp qK (mkApp qK z))
+Note: B (B wrap) inner x y = (B wrap) (inner x) y = wrap (inner x y) -/
+private def buildAppQuote : Term :=
+  let wrap := B ⬝ mk_K ⬝ (B ⬝ mk_K ⬝ mk_K)
+  let inner := PhiComb mkApp (B ⬝ mk_S ⬝ (B ⬝ mk_SI ⬝ mk_K)) mk_K
+  B ⬝ (B ⬝ wrap) ⬝ inner
+
+/-- Helper: wrap z ⟶* mk_K (mk_K (mk_K z))
+    where wrap = B mk_K (B mk_K mk_K) -/
+private theorem wrap_red (z : Term) :
+    (B ⬝ mk_K ⬝ (B ⬝ mk_K ⬝ mk_K)) ⬝ z ⟶* mk_K ⬝ (mk_K ⬝ (mk_K ⬝ z)) := by
+  refine Steps.trans (B_red mk_K (B ⬝ mk_K ⬝ mk_K) z) ?_
+  exact Steps.appR (B_red mk_K mk_K z)
+
+/-- buildAppQuote ⌜⌜t⌝⌝ ⌜⌜u⌝⌝ ⟶* ⌜⌜t ⬝ u⌝⌝ -/
+private theorem buildAppQuote_correct (t u : Term) :
+    buildAppQuote ⬝ ⌜⌜t⌝⌝ ⬝ ⌜⌜u⌝⌝ ⟶* ⌜⌜t ⬝ u⌝⌝ := by
+  unfold buildAppQuote
+  -- B (B wrap) inner ⌜⌜t⌝⌝ ⌜⌜u⌝⌝ where
+  -- wrap = B mk_K (B mk_K mk_K)
+  -- inner = PhiComb mkApp (B mk_S (B mk_SI mk_K)) mk_K
+  -- First: B (B wrap) inner ⌜⌜t⌝⌝ ⟶* (B wrap) (inner ⌜⌜t⌝⌝)
+  refine Steps.trans (Steps.appL (B_red (B ⬝ (B ⬝ mk_K ⬝ (B ⬝ mk_K ⬝ mk_K)))
+    (PhiComb mkApp (B ⬝ mk_S ⬝ (B ⬝ mk_SI ⬝ mk_K)) mk_K) ⌜⌜t⌝⌝)) ?_
+  -- ((B wrap) (inner ⌜⌜t⌝⌝)) ⌜⌜u⌝⌝
+  -- (B wrap) (inner ⌜⌜t⌝⌝) ⌜⌜u⌝⌝ ⟶* wrap (inner ⌜⌜t⌝⌝ ⌜⌜u⌝⌝)
+  refine Steps.trans (B_red (B ⬝ mk_K ⬝ (B ⬝ mk_K ⬝ mk_K))
+    (PhiComb mkApp (B ⬝ mk_S ⬝ (B ⬝ mk_SI ⬝ mk_K)) mk_K ⬝ ⌜⌜t⌝⌝) ⌜⌜u⌝⌝) ?_
+  -- wrap (inner ⌜⌜t⌝⌝ ⌜⌜u⌝⌝)
+  -- inner ⌜⌜t⌝⌝ ⌜⌜u⌝⌝ ⟶* mkApp ((B mk_S (B mk_SI mk_K)) ⌜⌜t⌝⌝) (mk_K ⌜⌜u⌝⌝)
+  refine Steps.trans (Steps.appR (PhiComb_red mkApp (B ⬝ mk_S ⬝ (B ⬝ mk_SI ⬝ mk_K)) mk_K ⌜⌜t⌝⌝ ⌜⌜u⌝⌝)) ?_
+  -- wrap (mkApp ((B mk_S (B mk_SI mk_K)) ⌜⌜t⌝⌝) (mk_K ⌜⌜u⌝⌝))
+  -- (B mk_S (B mk_SI mk_K)) ⌜⌜t⌝⌝ ⟶* mk_S ((B mk_SI mk_K) ⌜⌜t⌝⌝)
+  refine Steps.trans (Steps.appR (Steps.appL (Steps.appR (B_red mk_S (B ⬝ mk_SI ⬝ mk_K) ⌜⌜t⌝⌝)))) ?_
+  -- (B mk_SI mk_K) ⌜⌜t⌝⌝ ⟶* mk_SI (mk_K ⌜⌜t⌝⌝)
+  refine Steps.trans (Steps.appR (Steps.appL (Steps.appR (Steps.appR (B_red mk_SI mk_K ⌜⌜t⌝⌝))))) ?_
+  -- mk_K ⌜⌜t⌝⌝ ⟶* ⌜K ⬝ ⌜t⌝⌝
+  have h_mk_K_t : mk_K ⬝ ⌜⌜t⌝⌝ ⟶* ⌜K ⬝ ⌜t⌝⌝ := mkApp_correct K ⌜t⌝
+  have h_mk_K_u : mk_K ⬝ ⌜⌜u⌝⌝ ⟶* ⌜K ⬝ ⌜u⌝⌝ := mkApp_correct K ⌜u⌝
+  -- mk_SI (mk_K ⌜⌜t⌝⌝) ⟶* ⌜(S ⬝ I) ⬝ (K ⬝ ⌜t⌝)⌝
+  have h_mk_SI : mk_SI ⬝ (mk_K ⬝ ⌜⌜t⌝⌝) ⟶* ⌜(S ⬝ I) ⬝ (K ⬝ ⌜t⌝)⌝ := by
+    refine Steps.trans (Steps.appR h_mk_K_t) ?_
+    exact mkApp_correct (S ⬝ I) (K ⬝ ⌜t⌝)
+  refine Steps.trans (Steps.appR (Steps.appL (Steps.appR (Steps.appR h_mk_SI)))) ?_
+  -- mk_S (mk_SI (mk_K ⌜⌜t⌝⌝)) ⟶* ⌜S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))⌝
+  have h_mk_S : mk_S ⬝ ⌜(S ⬝ I) ⬝ (K ⬝ ⌜t⌝)⌝ ⟶* ⌜S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))⌝ :=
+    mkApp_correct S ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))
+  refine Steps.trans (Steps.appR (Steps.appL (Steps.appR h_mk_S))) ?_
+  refine Steps.trans (Steps.appR (Steps.appR h_mk_K_u)) ?_
+  -- wrap (mkApp ⌜S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))⌝ ⌜K ⬝ ⌜u⌝⌝)
+  have h_inner : mkApp ⬝ ⌜S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))⌝ ⬝ ⌜K ⬝ ⌜u⌝⌝ ⟶*
+                 ⌜(S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝)⌝ :=
+    mkApp_correct (S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) (K ⬝ ⌜u⌝)
+  refine Steps.trans (Steps.appR h_inner) ?_
+  -- wrap ⌜(S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝)⌝
+  refine Steps.trans (wrap_red _) ?_
+  -- mk_K (mk_K (mk_K ⌜...⌝))
+  have h1 : mk_K ⬝ ⌜(S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝)⌝ ⟶*
+            ⌜K ⬝ ((S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝))⌝ := mkApp_correct K _
+  refine Steps.trans (Steps.appR (Steps.appR h1)) ?_
+  have h2 : mk_K ⬝ ⌜K ⬝ ((S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝))⌝ ⟶*
+            ⌜K ⬝ (K ⬝ ((S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝)))⌝ := mkApp_correct K _
+  refine Steps.trans (Steps.appR h2) ?_
+  have h3 : mk_K ⬝ ⌜K ⬝ (K ⬝ ((S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝)))⌝ ⟶*
+            ⌜K ⬝ (K ⬝ (K ⬝ ((S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝))))⌝ := mkApp_correct K _
+  refine Steps.trans h3 ?_
+  -- Now show ⌜K ⬝ (K ⬝ (K ⬝ ((S ⬝ ((S ⬝ I) ⬝ (K ⬝ ⌜t⌝))) ⬝ (K ⬝ ⌜u⌝))))⌝ = ⌜⌜t ⬝ u⌝⌝
+  simp only [quote]
+  exact Steps.refl
+
+/-- P combinator: P r y ⟶* r y (equivalent to S (K r) I but computed via application)
+    P = S (S (K S) (S (K K) I)) (K I)
+    P r = S (K r) I
+    P r y = (K r y) (I y) = r y -/
+private def P : Term := S ⬝ (S ⬝ (K ⬝ S) ⬝ (S ⬝ (K ⬝ K) ⬝ I)) ⬝ (K ⬝ I)
+
+/-- P r y ⟶* r y -/
+private theorem P_red (r y : Term) : P ⬝ r ⬝ y ⟶* r ⬝ y := by
+  unfold P
+  -- S (S (K S) (S (K K) I)) (K I) r y
+  refine Steps.step (Step.appL Step.s) ?_
+  -- ((S (K S) (S (K K) I) r) ((K I) r)) y
+  refine Steps.step (Step.appL (Step.appR Step.k)) ?_
+  -- ((S (K S) (S (K K) I) r) I) y
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  -- (((K S r) ((S (K K) I) r)) I) y
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.k))) ?_
+  -- ((S ((S (K K) I) r)) I) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR Step.s))) ?_
+  -- ((S ((K K r) (I r))) I) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appL Step.k)))) ?_
+  -- ((S (K (I r))) I) y
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appR Step.i)))) ?_
+  -- ((S (K r)) I) y
+  refine Steps.step Step.s ?_
+  -- ((K r y) (I y))
+  refine Steps.step (Step.appL Step.k) ?_
+  -- (r (I y))
+  exact Steps.step (Step.appR Step.i) Steps.refl
+
+/-- The handler for app case: λr x y. buildAppQuote (r x) (r y)
+    = S (S (K S) (S (K (S (K B))) (S (K (S (K buildAppQuote))) P))) (S (K K) P)
+    where P is defined above.
+
+    The structure is:
+    - P r = S (K r) I, which gives P r y ⟶* r y
+    - Inner: S (K buildAppQuote) (P r) x ⟶* buildAppQuote ((P r) x) ⟶* buildAppQuote (r x)
+    - Then: B (buildAppQuote (r x)) (P r) y ⟶* buildAppQuote (r x) (r y)
+    - Full: S (B (buildAppQuote (r x))) (P r) is the x-abstracted form -/
+private def handlerFor : Term :=
+  S ⬝ (S ⬝ (K ⬝ S) ⬝ (S ⬝ (K ⬝ (S ⬝ (K ⬝ B))) ⬝ (S ⬝ (K ⬝ (S ⬝ (K ⬝ buildAppQuote))) ⬝ P))) ⬝
+  (S ⬝ (K ⬝ K) ⬝ P)
+
+/-- handlerFor r x y ⟶* buildAppQuote (r x) (r y) -/
+private theorem handlerFor_red (r x y : Term) :
+    handlerFor ⬝ r ⬝ x ⬝ y ⟶* buildAppQuote ⬝ (r ⬝ x) ⬝ (r ⬝ y) := by
+  unfold handlerFor
+  -- S A C r x y where A = S (K S) (S (K (S (K B))) (S (K (S (K buildAppQuote))) P))
+  --                and C = S (K K) P
+  -- First S-reduction on the outermost S: S A C r → (A r) (C r)
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  -- Now have ((A r) (C r)) x y
+  -- Reduce C r = S (K K) P r → (K K r) (P r) → K (P r)
+  refine Steps.step (Step.appL (Step.appL (Step.appR Step.s))) ?_
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appL Step.k)))) ?_
+  -- ((A r) (K (P r))) x y
+  -- Now reduce A r where A = S (K S) (S (K (S (K B))) (S (K (S (K buildAppQuote))) P))
+  -- S (K S) B' r → (K S r) (B' r) → S (B' r)
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.s))) ?_
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appL Step.k)))) ?_
+  -- ((S (B' r)) (K (P r))) x y where B' = S (K (S (K B))) (S (K (S (K buildAppQuote))) P)
+  -- Reduce B' r: S (K (S (K B))) D r → (K (S (K B)) r) (D r) → (S (K B)) (D r)
+  -- where D = S (K (S (K buildAppQuote))) P
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR Step.s)))) ?_
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR (Step.appL Step.k))))) ?_
+  -- ((S ((S (K B)) (D r))) (K (P r))) x y
+  -- Reduce D r: S (K (S (K buildAppQuote))) P r → (K (S (K buildAppQuote)) r) (P r) → (S (K buildAppQuote)) (P r)
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR (Step.appR Step.s))))) ?_
+  refine Steps.step (Step.appL (Step.appL (Step.appL (Step.appR (Step.appR (Step.appL Step.k)))))) ?_
+  -- Now we have: ((S ((S (K B)) ((S (K buildAppQuote)) (P r)))) (K (P r))) x y
+  -- This is ((S E F) x) y where E = (S (K B)) ((S (K buildAppQuote)) (P r)) and F = K (P r)
+  -- Apply S E F x → (E x) (F x)
+  refine Steps.step (Step.appL Step.s) ?_
+  -- (((E x) (F x))) y where F x = K (P r) x → P r
+  refine Steps.step (Step.appL (Step.appR Step.k)) ?_
+  -- ((E x) (P r)) y where E = (S (K B)) ((S (K buildAppQuote)) (P r))
+  -- E x = S (K B) G x → (K B x) (G x) → B (G x) where G = (S (K buildAppQuote)) (P r)
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.k))) ?_
+  -- ((B (G x)) (P r)) y where G x = (S (K buildAppQuote)) (P r) x
+  -- G x = S (K buildAppQuote) (P r) x → (K buildAppQuote x) ((P r) x) → buildAppQuote ((P r) x)
+  refine Steps.step (Step.appL (Step.appL (Step.appR Step.s))) ?_
+  refine Steps.step (Step.appL (Step.appL (Step.appR (Step.appL Step.k)))) ?_
+  -- ((B (buildAppQuote ((P r) x))) (P r)) y
+  -- Now use P_red: (P r) x ⟶* r x
+  -- Path: appL -> appL -> appR -> appR (to reach (P r) x inside buildAppQuote (P r x))
+  refine Steps.trans (Steps.appL (Steps.appL (Steps.appR (Steps.appR (P_red r x))))) ?_
+  -- ((B (buildAppQuote (r x))) (P r)) y
+  -- B f g y → f (g y), so B (buildAppQuote (r x)) (P r) y → buildAppQuote (r x) ((P r) y)
+  refine Steps.trans (B_red (buildAppQuote ⬝ (r ⬝ x)) (P ⬝ r) y) ?_
+  -- buildAppQuote (r x) ((P r) y) ⟶* buildAppQuote (r x) (r y)
+  exact Steps.appR (P_red r y)
+
+/-- A_handler = λq. q qqS qqK qqI = S (S (S I (K qqS)) (K qqK)) (K qqI)
+    When applied: A_handler q = q qqS qqK qqI -/
+private def A_handler : Term := S ⬝ (S ⬝ (S ⬝ I ⬝ (K ⬝ qqS)) ⬝ (K ⬝ qqK)) ⬝ (K ⬝ qqI)
+
+/-- A_handler q ⟶* q qqS qqK qqI -/
+private theorem A_handler_red (q : Term) : A_handler ⬝ q ⟶* q ⬝ qqS ⬝ qqK ⬝ qqI := by
+  unfold A_handler
+  -- S (S (S I (K qqS)) (K qqK)) (K qqI) q
+  refine Steps.step Step.s ?_
+  -- (S (S I (K qqS)) (K qqK) q) ((K qqI) q)
+  refine Steps.step (Step.appR Step.k) ?_
+  -- (S (S I (K qqS)) (K qqK) q) qqI
+  refine Steps.step (Step.appL Step.s) ?_
+  -- ((S I (K qqS) q) ((K qqK) q)) qqI
+  refine Steps.step (Step.appL (Step.appR Step.k)) ?_
+  -- ((S I (K qqS) q) qqK) qqI
+  refine Steps.step (Step.appL (Step.appL Step.s)) ?_
+  -- (((I q) ((K qqS) q)) qqK) qqI
+  refine Steps.step (Step.appL (Step.appL (Step.appL Step.i))) ?_
+  -- ((q ((K qqS) q)) qqK) qqI
+  refine Steps.step (Step.appL (Step.appL (Step.appR Step.k))) ?_
+  -- ((q qqS) qqK) qqI
+  exact Steps.refl
+
+/-- quoteQuoteBody: body r q = q qqS qqK qqI (handlerFor r)
+    = S A_handler (S (K K) handlerFor) applied to r q -/
+private def quoteQuoteBody : Term :=
+  S ⬝ (K ⬝ (S ⬝ A_handler)) ⬝ (S ⬝ (K ⬝ K) ⬝ handlerFor)
+
+/-- The quoteQuote combinator using Θ -/
+def quoteQuote : Term := Θ ⬝ quoteQuoteBody
+
+/-- Helper: quoteQuoteBody r q ⟶* (q ⬝ qqS ⬝ qqK ⬝ qqI) ⬝ (handlerFor ⬝ r) -/
+private theorem quoteQuoteBody_red (r q : Term) :
+    quoteQuoteBody ⬝ r ⬝ q ⟶* (q ⬝ qqS ⬝ qqK ⬝ qqI) ⬝ (handlerFor ⬝ r) := by
+  unfold quoteQuoteBody
+  -- S (K (S A_handler)) (S (K K) handlerFor) r q
+  refine Steps.step (Step.appL Step.s) ?_
+  -- (K (S A_handler) r) ((S (K K) handlerFor) r) q
+  refine Steps.step (Step.appL (Step.appL Step.k)) ?_
+  -- (S A_handler) ((S (K K) handlerFor) r) q
+  refine Steps.step (Step.appL (Step.appR Step.s)) ?_
+  refine Steps.step (Step.appL (Step.appR (Step.appL Step.k))) ?_
+  -- (S A_handler) (K (handlerFor r)) q
+  -- S A_handler (K (handlerFor r)) q ⟶ (A_handler q) ((K (handlerFor r)) q)
+  refine Steps.step Step.s ?_
+  -- (A_handler q) ((K (handlerFor r)) q)
+  refine Steps.step (Step.appR Step.k) ?_
+  -- (A_handler q) (handlerFor r)
+  -- A_handler q ⟶* q qqS qqK qqI
+  exact Steps.appL (A_handler_red q)
+
+/-- Common initial reduction: quoteQuote ⌜t⌝ ⟶* (⌜t⌝ qqS qqK qqI) (handlerFor quoteQuote) -/
+private theorem quoteQuote_step (t : Term) :
+    quoteQuote ⬝ ⌜t⌝ ⟶* (⌜t⌝ ⬝ qqS ⬝ qqK ⬝ qqI) ⬝ (handlerFor ⬝ quoteQuote) := by
+  unfold quoteQuote
+  refine Steps.trans (Steps.appL (theta_unfold quoteQuoteBody)) ?_
+  exact quoteQuoteBody_red (Θ ⬝ quoteQuoteBody) ⌜t⌝
+
+/-- quoteQuote ⌜t⌝ ⟶* ⌜⌜t⌝⌝ -/
+theorem quoteQuote_correct : ∀ t, quoteQuote ⬝ ⌜t⌝ ⟶* ⌜⌜t⌝⌝
+  | S => Steps.trans (quoteQuote_step S) (quote_S_red qqS qqK qqI (handlerFor ⬝ quoteQuote))
+  | K => Steps.trans (quoteQuote_step K) (quote_K_red qqS qqK qqI (handlerFor ⬝ quoteQuote))
+  | I => Steps.trans (quoteQuote_step I) (quote_I_red qqS qqK qqI (handlerFor ⬝ quoteQuote))
+  | app t u => by
+    refine Steps.trans (quoteQuote_step (t ⬝ u)) ?_
+    refine Steps.trans (quote_app_red t u qqS qqK qqI (handlerFor ⬝ quoteQuote)) ?_
+    refine Steps.trans (handlerFor_red quoteQuote ⌜t⌝ ⌜u⌝) ?_
+    refine Steps.trans (Steps.appL (Steps.appR (quoteQuote_correct t))) ?_
+    refine Steps.trans (Steps.appR (quoteQuote_correct u)) ?_
+    exact buildAppQuote_correct t u
 
 /-- Self-application combinator: selfApp ⌜t⌝ ⟶* ⌜t ⬝ ⌜t⌝⌝
     selfApp = λy. mkApp y (quoteQuote y) = S mkApp quoteQuote -/
-noncomputable def selfApp : Term := S ⬝ mkApp ⬝ quoteQuote
+def selfApp : Term := S ⬝ mkApp ⬝ quoteQuote
 
 theorem selfApp_correct (t : Term) : selfApp ⬝ ⌜t⌝ ⟶* ⌜t ⬝ ⌜t⌝⌝ := by
   unfold selfApp
@@ -326,7 +595,7 @@ theorem selfApp_correct (t : Term) : selfApp ⬝ ⌜t⌝ ⟶* ⌜t ⬝ ⌜t⌝�
 /-! ## Kleene's Fixed-Point Theorem -/
 
 /-- Helper: λy. g (selfApp y) in SKI = S (K g) selfApp -/
-private noncomputable def kleeneHelper (g : Term) : Term := S ⬝ (K ⬝ g) ⬝ selfApp
+private def kleeneHelper (g : Term) : Term := S ⬝ (K ⬝ g) ⬝ selfApp
 
 /-- kleeneHelper g y ⟶* g (selfApp y) -/
 private theorem kleeneHelper_red (g y : Term) :

@@ -241,18 +241,13 @@ theorem syntactic_rice (P : Term → Prop)
     -- Contradiction
     exact hPx hPx'
 
-/-- NOTE: This direction does NOT hold in our setting.
-    To go from syntactic to behavioral decidability, we would need a "quoting combinator"
-    q such that q t ⟶* ⌜t⌝ for any term t. But no such combinator exists - you can't
-    compute the syntax of a term from its behavior.
+/- NOTE: Syntactic decidability does NOT imply behavioral decidability.
+   To go from syntactic to behavioral, we would need a "quoting combinator"
+   q such that q t ⟶* ⌜t⌝ for any term t. But no such combinator exists -
+   you can't compute the syntax of a term from its behavior.
 
-    In other words: syntactic decidability (having access to the encoding) is strictly
-    stronger than behavioral decidability (having access to the term directly). -/
-theorem syntactic_implies_behavioral {P : Term → Prop} :
-    IsSyntacticallyDecidable P → IsDecidable P := by
-  intro ⟨d, hdec⟩
-  -- Would need: d' = λx. d ⌜x⌝, but we can't quote at runtime
-  sorry -- This is actually FALSE without additional axioms
+   Syntactic decidability (having access to the encoding ⌜t⌝) is strictly
+   stronger than behavioral decidability (having access to the term t directly). -/
 
 /-- Halting is syntactically undecidable -/
 theorem halting_syntactically_undecidable : ¬IsSyntacticallyDecidable Halts :=
