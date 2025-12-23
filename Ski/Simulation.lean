@@ -561,38 +561,56 @@ theorem step_p_in_compose (p q : RM) (c c' : RMConfig)
           omega
         simp only [hsub]
 
+/-! ### Additional Simulation Lemmas -/
+
+/-- When q halts, composed program transitions to p region -/
+theorem q_halt_transition (p q : RM) (c : RMConfig)
+    (hpc : c.pc < q.length)
+    (hhalt : getInstr q c.pc = some RMInstr.halt)
+    (hr1000 : c.regs 1000 = 0) :
+    rmStep (rmCompose p q) c = some { pc := q.length, regs := c.regs } :=
+  step_q_halt p q c hpc hhalt hr1000
+
+/-- Halting in p region of composed program -/
+theorem halt_p_in_compose (p q : RM) (c : RMConfig)
+    (hpc : c.pc ≥ q.length)
+    (hhalt : getInstr p (c.pc - q.length) = some RMInstr.halt) :
+    isHalted (rmCompose p q) c = true := by
+  simp only [isHalted]
+  have hget := getInstr_compose_right p q c.pc hpc
+  simp only [getInstr] at hhalt hget
+  cases hp : p[c.pc - q.length]? with
+  | none => simp [hp] at hhalt
+  | some instr =>
+    simp only [hp, Option.map] at hget
+    cases instr with
+    | halt =>
+      simp only at hget
+      simp only [hget, getInstr]
+    | inc r => simp [hp] at hhalt
+    | dec r j => simp [hp] at hhalt
+
 /-! ### Composition Specification
 
-The single-step lemmas above (step_q_nonhalt, step_q_halt, step_p_in_compose)
-provide the building blocks for proving that rmCompose correctly implements
-function composition.
+The single-step lemmas (step_q_nonhalt, step_q_halt, step_p_in_compose) provide
+the building blocks for proving that rmCompose correctly implements function
+composition:
 
-A full proof of rmCompose_spec would proceed as follows:
-1. Case rmComputes q input = none (q diverges):
-   - q never halts, so the composed program stays in q's region forever
-   - By step_q_nonhalt, each step in q maps to a step in composed program
-   - Therefore composed program also diverges
+- **step_q_nonhalt**: Non-halt steps in q region map directly to composed program
+- **step_q_halt**: Halt in q transitions to p region (pc = q.length)
+- **step_p_in_compose**: Steps in p region map with pc offset adjustment
+- **q_halt_transition**: Convenient wrapper for step_q_halt
+- **halt_p_in_compose**: Halting detection in p region
 
-2. Case rmComputes q input = some v (q halts with output v):
-   - q halts at some step n with pc pointing to halt instruction
-   - By step_q_halt, the composed program transitions to p's region (pc = q.length)
-   - The register state has r0 = v (q's output)
+A complete proof of rmCompose_spec requires tracking:
+1. Multi-step simulation in q region until q halts
+2. The transition when q halts
+3. Multi-step simulation in p region after transition
 
-3. After transition to p's region:
-   - Case rmComputes p v = none: p diverges, by step_p_in_compose composed diverges
-   - Case rmComputes p v = some w: p halts with w, by step_p_in_compose composed halts with w
-
-The proof requires careful tracking of:
-- PC offsets between q and p regions
-- Register 1000 invariant (preserved by WellFormedRM programs)
-- Intermediate configurations through multi-step simulation
-
-For now, we axiomatize this theorem as the single-step lemmas demonstrate
-the correctness of the key transitions.
+The rmCompose_spec axiom captures this composition behavior.
 -/
 
-/-- Specification: rmCompose implements function composition.
-    This is the key semantic property that the implementation satisfies. -/
+/-- Specification: rmCompose implements function composition. -/
 axiom rmCompose_spec (p q : RM) (input : Nat) :
     rmComputes (rmCompose p q) input =
     (rmComputes q input) >>= (rmComputes p)
