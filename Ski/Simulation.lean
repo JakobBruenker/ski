@@ -561,6 +561,132 @@ theorem step_p_in_compose (p q : RM) (c c' : RMConfig)
           omega
         simp only [hsub]
 
+/-! ### Multi-Step Simulation -/
+
+/-- If rmStep q fails (halts or out of bounds), what happens in composed program -/
+private theorem step_q_fail (p q : RM) (c : RMConfig)
+    (hstep : rmStep q c = none)
+    (hpc : c.pc < q.length)
+    (hr1000 : c.regs 1000 = 0) :
+    -- q must have halted (since pc < length means instruction exists)
+    getInstr q c.pc = some RMInstr.halt := by
+  simp only [rmStep] at hstep
+  cases hinstr : getInstr q c.pc with
+  | none =>
+    -- pc < q.length means there is an instruction
+    simp only [getInstr] at hinstr
+    have h : c.pc ≥ q.length := by
+      cases hq : q[c.pc]? with
+      | none => exact List.getElem?_eq_none_iff.mp hq
+      | some _ => simp [hq] at hinstr
+    omega
+  | some instr =>
+    simp only [hinstr] at hstep
+    cases instr with
+    | halt => rfl
+    | inc r => simp at hstep
+    | dec r j =>
+      simp only at hstep
+      split at hstep <;> simp at hstep
+
+/-- Multi-step simulation in q region: if q runs n steps staying in bounds
+    without halting, composed program matches exactly -/
+theorem steps_q_nonhalt (p q : RM) (n : Nat) (c c' : RMConfig)
+    (hwf : WellFormedRM q)
+    (hsteps : rmSteps q c n = some c')
+    (hpc : c.pc < q.length)
+    (hr1000 : c.regs 1000 = 0)
+    -- All intermediate configs have pc < q.length and don't halt
+    (hbounds : ∀ k < n, ∀ ck, rmSteps q c k = some ck →
+        ck.pc < q.length ∧ getInstr q ck.pc ≠ some RMInstr.halt) :
+    rmSteps (rmCompose p q) c n = some c' := by
+  induction n generalizing c with
+  | zero =>
+    simp only [rmSteps] at hsteps ⊢
+    exact hsteps
+  | succ n ih =>
+    simp only [rmSteps] at hsteps ⊢
+    cases hstep_q : rmStep q c with
+    | none =>
+      -- rmStep q c = none but we have hbounds saying c doesn't halt
+      have ⟨_, hnonhalt⟩ := hbounds 0 (Nat.zero_lt_succ n) c (by simp [rmSteps])
+      have hhalt := step_q_fail p q c hstep_q hpc hr1000
+      exact absurd hhalt hnonhalt
+    | some c1 =>
+      simp only [hstep_q] at hsteps
+      have ⟨_, hnonhalt⟩ := hbounds 0 (Nat.zero_lt_succ n) c (by simp [rmSteps])
+      have hstep_comp := step_q_nonhalt p q c c1 hstep_q hpc hnonhalt
+      rw [hstep_comp]
+      -- For IH, need c1 properties
+      have hr1000' := r1000_preserved q c c1 hwf hstep_q hr1000
+      -- Handle n = 0 case separately
+      cases n with
+      | zero =>
+        simp only [rmSteps] at hsteps ⊢
+        exact hsteps
+      | succ m =>
+        have h1_lt : 1 < m + 1 + 1 := by omega
+        have ⟨hpc1, _⟩ := hbounds 1 h1_lt c1 (by simp [rmSteps, hstep_q])
+        apply ih c1 hsteps hpc1 hr1000'
+        intro k hk ck hsteps_ck
+        have hsteps_c : rmSteps q c (k + 1) = some ck := by
+          simp only [rmSteps, hstep_q, hsteps_ck]
+        exact hbounds (k + 1) (Nat.succ_lt_succ hk) ck hsteps_c
+
+/-- Multi-step simulation in p region: steps match with pc offset -/
+theorem steps_p_offset (p q : RM) (n : Nat) (c c' : RMConfig)
+    (hsteps : rmSteps p c n = some c') :
+    rmSteps (rmCompose p q) { pc := c.pc + q.length, regs := c.regs } n =
+    some { pc := c'.pc + q.length, regs := c'.regs } := by
+  induction n generalizing c with
+  | zero =>
+    simp only [rmSteps] at hsteps ⊢
+    simp only [Option.some.injEq] at hsteps
+    subst hsteps
+    rfl
+  | succ n ih =>
+    simp only [rmSteps] at hsteps ⊢
+    cases hstep_p : rmStep p c with
+    | none =>
+      simp only [hstep_p] at hsteps
+      simp only [Option.some.injEq] at hsteps
+      subst hsteps
+      -- p halts or errors, need to show composed does too
+      have hpc_ge : c.pc + q.length ≥ q.length := Nat.le_add_left q.length c.pc
+      have hget := getInstr_compose_right p q (c.pc + q.length) hpc_ge
+      simp only [Nat.add_sub_cancel] at hget
+      simp only [rmStep] at hstep_p
+      cases hinstr : getInstr p c.pc with
+      | none =>
+        simp only [getInstr] at hinstr hget
+        simp only [hinstr, Option.map] at hget
+        simp only [rmStep, getInstr, hget]
+      | some instr =>
+        simp only [getInstr] at hinstr hget
+        simp only [hinstr, Option.map] at hget
+        cases instr with
+        | halt =>
+          simp only [rmStep, getInstr, hget]
+        | inc r =>
+          -- hinstr says getInstr returns inc r, but hstep_p says rmStep returns none
+          -- which is a contradiction since inc always succeeds
+          simp only [getInstr, hinstr] at hstep_p
+          exact Option.noConfusion hstep_p
+        | dec r j =>
+          -- dec always returns some (either increments or jumps)
+          simp only [getInstr, hinstr] at hstep_p
+          split at hstep_p <;> exact Option.noConfusion hstep_p
+    | some c1 =>
+      simp only [hstep_p] at hsteps
+      have hpc_ge : c.pc + q.length ≥ q.length := Nat.le_add_left q.length c.pc
+      have hstep_adj : rmStep p { pc := (c.pc + q.length) - q.length, regs := c.regs } = some c1 := by
+        simp only [Nat.add_sub_cancel]
+        exact hstep_p
+      have hstep_comp := step_p_in_compose p q { pc := c.pc + q.length, regs := c.regs } c1 hstep_adj hpc_ge
+      simp only at hstep_comp
+      rw [hstep_comp]
+      exact ih c1 hsteps
+
 /-! ### Additional Simulation Lemmas -/
 
 /-- When q halts, composed program transitions to p region -/
@@ -606,9 +732,132 @@ A complete proof of rmCompose_spec requires tracking:
 1. Multi-step simulation in q region until q halts
 2. The transition when q halts
 3. Multi-step simulation in p region after transition
-
-The rmCompose_spec axiom captures this composition behavior.
 -/
+
+/-! ### Divergence Case -/
+
+/-- When halted with valid pc, instruction is halt -/
+private theorem halted_inbounds_is_halt (prog : RM) (c : RMConfig)
+    (hhalted : isHalted prog c = true)
+    (hinbounds : c.pc < prog.length) :
+    getInstr prog c.pc = some RMInstr.halt := by
+  simp only [isHalted, getInstr] at hhalted ⊢
+  cases hget : prog[c.pc]? with
+  | none =>
+    have h : c.pc ≥ prog.length := List.getElem?_eq_none_iff.mp hget
+    omega
+  | some instr =>
+    simp only [hget] at hhalted ⊢
+    cases instr with
+    | halt => rfl
+    | inc r => simp at hhalted
+    | dec r j => simp at hhalted
+
+/-- Not halted means instruction is inc or dec -/
+private theorem not_halted_instr (prog : RM) (c : RMConfig)
+    (hnothalted : isHalted prog c = false)
+    (hinbounds : c.pc < prog.length) :
+    getInstr prog c.pc ≠ some RMInstr.halt := by
+  intro hhalt
+  simp only [isHalted, hhalt] at hnothalted
+  exact absurd hnothalted (by decide)
+
+/-- If q never halts on input, composed program also never halts -/
+theorem compose_diverges_if_q_diverges (p q : RM) (input : Nat)
+    (hwf : WellFormedRM q)
+    (hdiv : ∀ n, (rmOutput q input n).isNone) :
+    ∀ n, (rmOutput (rmCompose p q) input n).isNone := by
+  intro n
+  -- q never produces output, so composed program stays in q region forever
+  -- or matches q's non-halting behavior
+  simp only [rmOutput] at hdiv ⊢
+  -- We prove by strong induction: at step n, composed is still running q-region
+  -- or in some non-halted state
+  sorry -- Will fill in after adding helper lemmas
+
+/-! ### Halting Case -/
+
+/-- Register 1000 stays 0 through multiple steps (for init config) -/
+private theorem r1000_preserved_from_init (q : RM) (n : Nat) (c : RMConfig)
+    (hwf : WellFormedRM q)
+    (hsteps : rmSteps q (RMConfig.init input) n = some c) :
+    c.regs 1000 = 0 := by
+  have h0 : (RMConfig.init input).regs 1000 = 0 := rfl
+  exact r1000_preserved_steps q (RMConfig.init input) c n hwf hsteps h0
+
+/-- If q halts at step n with config c (halting via halt instruction, not OOB),
+    composed program reaches q's halt and transitions to p region at step n+1 -/
+theorem compose_runs_q_then_p (p q : RM) (input n : Nat) (c : RMConfig)
+    (hwf : WellFormedRM q)
+    (hsteps : rmSteps q (RMConfig.init input) n = some c)
+    (hhalt : isHalted q c = true)
+    (hinbounds : c.pc < q.length)  -- halts via halt instruction, not OOB
+    -- All earlier steps didn't halt and stayed in bounds
+    (hearlier : ∀ k < n, ∀ ck, rmSteps q (RMConfig.init input) k = some ck →
+        isHalted q ck = false ∧ ck.pc < q.length) :
+    rmSteps (rmCompose p q) (RMConfig.init input) (n + 1) =
+    some { pc := q.length, regs := c.regs } := by
+  -- The halt instruction
+  have hhalt_instr := halted_inbounds_is_halt q c hhalt hinbounds
+  -- r1000 = 0 for c
+  have hr1000_c := r1000_preserved_from_init q n c hwf hsteps
+  cases n with
+  | zero =>
+    -- n = 0: init is already halted
+    simp only [rmSteps] at hsteps
+    simp only [Option.some.injEq] at hsteps
+    subst hsteps
+    -- One step from init in composed program
+    simp only [rmSteps]
+    have hinit_pc : (RMConfig.init input).pc = 0 := rfl
+    have hinit_pc_lt : (RMConfig.init input).pc < q.length := by simp only [hinit_pc]; exact hinbounds
+    have hr1000_init : (RMConfig.init input).regs 1000 = 0 := rfl
+    have hstep := step_q_halt p q (RMConfig.init input) hinit_pc_lt hhalt_instr hr1000_init
+    simp only [hstep]
+  | succ m =>
+    -- n = m + 1: run m steps matching q, then step m+1 reaching halt, then transition
+    simp only [rmSteps]
+    -- First, show rmStep of init in composed matches q
+    cases hstep_init : rmStep q (RMConfig.init input) with
+    | none =>
+      -- init is halted, contradicts hearlier at k=0
+      have ⟨hnothalted, _⟩ := hearlier 0 (Nat.zero_lt_succ m) (RMConfig.init input) (by simp [rmSteps])
+      -- isHalted_iff says: isHalted = true ↔ rmStep = none
+      -- hstep_init says rmStep = none, so isHalted = true
+      -- But hnothalted says isHalted = false, contradiction
+      have hhalted := isHalted_iff q (RMConfig.init input) |>.mpr hstep_init
+      simp only [hnothalted] at hhalted
+      exact absurd hhalted (by decide)
+    | some c1 =>
+      -- c1 is the config after one step
+      have ⟨hnothalted0, hpc0_lt⟩ := hearlier 0 (Nat.zero_lt_succ m) (RMConfig.init input) (by simp [rmSteps])
+      have hinstr0 := not_halted_instr q (RMConfig.init input) hnothalted0 hpc0_lt
+      have hr1000_init : (RMConfig.init input).regs 1000 = 0 := rfl
+      have hinit_pc_lt : (RMConfig.init input).pc < q.length := hpc0_lt
+      have hstep_comp := step_q_nonhalt p q (RMConfig.init input) c1 hstep_init hinit_pc_lt hinstr0
+      rw [hstep_comp]
+      -- Now we have rmSteps q c1 m = some c (since rmSteps q init (m+1) = some c)
+      simp only [rmSteps, hstep_init] at hsteps
+      -- Use induction or recurse - for now use sorry to get structure working
+      sorry
+
+/-- Output of composed program when q halts -/
+theorem compose_output_when_q_halts (p q : RM) (input n_q : Nat) (v : Nat)
+    (hwf : WellFormedRM q)
+    (hq_out : rmOutput q input n_q = some v) :
+    ∃ c_trans, rmSteps (rmCompose p q) (RMConfig.init input) (n_q + 1) = some c_trans ∧
+    c_trans.pc = q.length ∧ c_trans.regs 0 = v := by
+  sorry
+
+/-- Specification: rmCompose implements function composition.
+    This is the well-formed version with explicit hypotheses. -/
+theorem rmCompose_spec_wf (p q : RM) (input : Nat)
+    (hwf_p : WellFormedRM p) (hwf_q : WellFormedRM q) :
+    rmComputes (rmCompose p q) input =
+    (rmComputes q input) >>= (rmComputes p) := by
+  -- Case split on whether q halts
+  simp only [rmComputes]
+  sorry
 
 /-- Specification: rmCompose implements function composition. -/
 axiom rmCompose_spec (p q : RM) (input : Nat) :
