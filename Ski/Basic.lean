@@ -34,6 +34,17 @@ notation:50 t " ⟶* " t' => Steps t t'
 def IsNormal (t : Term) : Prop :=
   ∀ t', ¬ (t ⟶ t')
 
+/-- Convertibility: terms that reduce to a common reduct -/
+def Conv (a b : Term) : Prop := ∃ c, (a ⟶* c) ∧ (b ⟶* c)
+
+notation:50 a " ≈ " b => Conv a b
+
+/-- Convertibility is reflexive -/
+lemma Conv.refl : a ≈ a := ⟨a, Steps.refl, Steps.refl⟩
+
+/-- Convertibility is symmetric -/
+lemma Conv.symm {a b : Term} : (a ≈ b) → (b ≈ a) := fun ⟨c, hac, hbc⟩ => ⟨c, hbc, hac⟩
+
 /-- Steps is transitive -/
 lemma Steps.trans {a b c : Term} : (a ⟶* b) → (b ⟶* c) → (a ⟶* c) := by
   intro r₁ r₂
@@ -196,16 +207,26 @@ lemma Pars.toSteps : (t ⇒* t') → (t ⟶* t') := by
   | refl => exact Steps.refl
   | step p _ ih => exact Steps.trans p.toSteps ih
 
-/-- Confluence (Church-Rosser): if t reduces to both a and b, they can rejoin -/
-theorem confluence {t a b : Term} : (t ⟶* a) → (t ⟶* b) → ∃ c, (a ⟶* c) ∧ (b ⟶* c) := by
+/-- Confluence (Church-Rosser): if t reduces to both a and b, they are convertible -/
+theorem confluence {t a b : Term} : (t ⟶* a) → (t ⟶* b) → a ≈ b := by
   intro ha hb
   obtain ⟨c, hac, hbc⟩ := Pars.confluence ha.toPars hb.toPars
   exact ⟨c, hac.toSteps, hbc.toSteps⟩
 
+/-- Convertibility is transitive (requires confluence) -/
+lemma Conv.trans {a b c : Term} : (a ≈ b) → (b ≈ c) → (a ≈ c) := by
+  intro ⟨ab, hab, hbb⟩ ⟨bc, hbc, hcc⟩
+  obtain ⟨d, hbd, hbcd⟩ := confluence hbb hbc
+  exact ⟨d, Steps.trans hab hbd, Steps.trans hcc hbcd⟩
+
+/-- Convertibility is an equivalence relation -/
+theorem Conv.equivalence : Equivalence Conv :=
+  ⟨fun _ => Conv.refl, Conv.symm, Conv.trans⟩
+
 /-- Normal forms are unique -/
 lemma normal_unique {t n m : Term} : (t ⟶* n) → (t ⟶* m) → IsNormal n → IsNormal m → n = m := by
   intro hn hm nn nm
-  obtain ⟨c, hnc, hmc⟩ := confluence hn hm
+  obtain ⟨c, hnc, hmc⟩ : n ≈ m := confluence hn hm
   cases hnc with
   | refl =>
     cases hmc with
